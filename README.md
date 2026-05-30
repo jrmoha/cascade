@@ -4,8 +4,9 @@ Real-time event analytics platform — self-hostable, event-driven, built for hi
 
 ## Documentation
 
-- [Project Charter](docs/cascade-project-charter.md) — problem, goals, scope, and technology rationale
-- [Blueprint](docs/blueprint.md) — service architecture and data flow _(coming soon)_
+- [Project Charter](docs/00-charter.md) — problem, goals, scope, and technology rationale
+- [Blueprint](docs/blueprint.md) — service architecture, data flow, and design constraints
+- [ADR index](docs/adr/README.md) — architecture decision records
 - [CLAUDE.md](CLAUDE.md) — working agreement, architecture rules, and conventions
 
 ## Structure
