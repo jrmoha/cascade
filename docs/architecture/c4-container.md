@@ -82,3 +82,9 @@ no arrow from the Query API to Cassandra. Any proposed feature that would requir
 a design error — the missing aggregation must be added to the Aggregator instead.
 
 See [ADR-0001](../adr/0001-overall-architecture.md) for the full rationale.
+
+> **Phase 0 exception (temporary).** The walking skeleton has no Aggregator or read models yet, so
+> KAN-19 ships a `GET /query` that reads raw events **directly from Cassandra** purely to close the
+> ingest→store→read loop for the KAN-20 smoke test. This is a deliberate, fenced deviation from the
+> boundary above — partition-key-bounded reads only, no `ALLOW FILTERING` — and is removed in Phase 1
+> when the Aggregator + read models exist. See [ADR-0003](../adr/0003-query-api-phase0-raw-read.md).

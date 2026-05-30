@@ -13,10 +13,11 @@ ADRs follow the [MADR](https://adr.github.io/madr/) lightweight template:
 
 ## Index
 
-| #                                          | Title                                                                  | Status   |
-| ------------------------------------------ | ---------------------------------------------------------------------- | -------- |
-| [0001](0001-overall-architecture.md)       | Overall system architecture (CQRS + Kafka + Cassandra + microservices) | Accepted |
-| [0002](0002-collector-kafka-production.md) | Collector Kafka production strategy (transport, message key, eventId)  | Accepted |
+| #                                          | Title                                                                  | Status               |
+| ------------------------------------------ | ---------------------------------------------------------------------- | -------------------- |
+| [0001](0001-overall-architecture.md)       | Overall system architecture (CQRS + Kafka + Cassandra + microservices) | Accepted             |
+| [0002](0002-collector-kafka-production.md) | Collector Kafka production strategy (transport, message key, eventId)  | Accepted             |
+| [0003](0003-query-api-phase0-raw-read.md)  | Query API Phase-0 raw read-back from Cassandra (temporary)             | Accepted (temporary) |
 
 ## Creating a new ADR
 

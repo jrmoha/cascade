@@ -1,8 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { types } from 'cassandra-driver';
-import { RawEvent } from '@cascade/contracts';
+import { RawEvent, toHourlyWindow } from '@cascade/contracts';
 import { CassandraService, KEYSPACE } from '../cassandra/cassandra.service';
-import { toHourlyWindow } from './time-window';
 
 const INSERT_RAW_EVENT = `
   INSERT INTO ${KEYSPACE}.raw_events

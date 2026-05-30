@@ -3,6 +3,7 @@
   "references": [
     { "path": "libs/contracts" },
     { "path": "services/collector" },
-    { "path": "services/ingestion-processor" }
+    { "path": "services/ingestion-processor" },
+    { "path": "services/query-api" }
   ]
 }

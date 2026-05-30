@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { toHourlyWindow } from '../src/processor/time-window';
+import { recentHourlyWindows, toHourlyWindow } from '../src/time-window';
 
 describe('toHourlyWindow', () => {
   afterEach(() => vi.useRealTimers());
@@ -24,5 +24,32 @@ describe('toHourlyWindow', () => {
     vi.setSystemTime(new Date('2026-01-02T09:45:00.000Z'));
     expect(toHourlyWindow(undefined)).toBe('2026-01-02T09');
     expect(toHourlyWindow('not-a-date')).toBe('2026-01-02T09');
+  });
+});
+
+describe('recentHourlyWindows', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('returns just the current bucket for hours = 1', () => {
+    expect(recentHourlyWindows('2026-05-30T15:16:50.165Z', 1)).toEqual(['2026-05-30T15']);
+  });
+
+  it('walks back, most-recent first, across day and month boundaries', () => {
+    expect(recentHourlyWindows('2026-05-30T01:00:00.000Z', 3)).toEqual([
+      '2026-05-30T01',
+      '2026-05-30T00',
+      '2026-05-29T23',
+    ]);
+  });
+
+  it('clamps hours to at least 1', () => {
+    expect(recentHourlyWindows('2026-05-30T15:00:00.000Z', 0)).toEqual(['2026-05-30T15']);
+    expect(recentHourlyWindows('2026-05-30T15:00:00.000Z', -5)).toEqual(['2026-05-30T15']);
+  });
+
+  it('defaults the anchor to now when not given', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-02T09:45:00.000Z'));
+    expect(recentHourlyWindows(undefined, 2)).toEqual(['2026-01-02T09', '2026-01-02T08']);
   });
 });
