@@ -21,7 +21,7 @@ Event-driven. Collector → **Kafka** → two independent consumers: Ingestion-P
 
 - NestJS + TypeScript. Node 20+. (Pin versions in package.json.)
 - Lint/format: ESLint + Prettier. Commits: Conventional Commits (Commitlint + Husky).
-- Tests: Vitest (unit), Testcontainers (integration against real Cassandra/Kafka/Postgres). Don't mock the database in integration tests.
+- Tests: Vitest (unit), Testcontainers (integration against real Cassandra/Kafka/Postgres). Don't mock the database in integration tests. NestJS services need `unplugin-swc` in their `vitest.config.ts` so decorator metadata is emitted for DI (see `services/collector`). Gate Docker-dependent integration tests behind `SKIP_INTEGRATION=1`.
 - Monorepo: `services/`, `libs/` (shared contracts), `infra/` (Terraform + docker-compose), `docs/`.
 
 ## Local env gotchas

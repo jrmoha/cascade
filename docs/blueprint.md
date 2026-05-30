@@ -121,3 +121,30 @@ npm install
 **Phase 1**: production-grade ingestion, schema validation, real aggregations.
 
 **Phase 2**: load testing, chaos engineering, observability stack, AWS deployment.
+
+---
+
+## 8. Collector service (Phase 0 — KAN-17)
+
+The first service of the write path. A thin NestJS app exposing a single endpoint:
+
+- `POST /collect` — accepts an event, performs **light** validation (`projectId` and
+  `type` required, non-empty strings; `timestamp` and `payload` optional), enriches it
+  into the canonical [`RawEvent`](contracts/raw-event.md) envelope, produces it to the
+  Kafka `raw-events` topic, and returns `202 Accepted` with the stamped `eventId`.
+
+Key decisions:
+
+- **Kafka client:** `@nestjs/microservices` Kafka transport (`ClientKafka`) in
+  producer-only mode. Brokers come from `KAFKA_BOOTSTRAP_SERVERS` (default
+  `localhost:9092`).
+- **Message key = `projectId`.** All events for a project land on the same partition,
+  preserving per-project ordering and aligning with the Cassandra
+  `(project_id, time_window)` partitioning.
+- **`eventId` is server-stamped** (UUID v4) when absent. This is the stable idempotency
+  key consumers use downstream for dedup (see ADR-0001 and the idempotency constraint
+  above).
+
+Light validation only here — real per-project schema validation and API-key checks are
+Phase 1. The Collector owns no data store. Run/verify steps:
+[runbooks/collector.md](runbooks/collector.md).
