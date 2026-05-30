@@ -40,3 +40,5 @@ Event-driven. Collector → **Kafka** → two independent consumers: Ingestion-P
 ## Phase gate
 
 Currently in **Phase 0 — walking skeleton** (epic KAN-5). Do not start Phase 1 work until the end-to-end smoke test (KAN-20) passes.
+
+The gate is `npm run smoke` (the `@cascade/e2e` workspace; see README → "End-to-end smoke test"). It stands up real Kafka + Cassandra via Testcontainers, boots all three services in-process, and asserts an event round-trips Collector → Kafka → Cassandra → Query API. **As of KAN-20 this passes** — Phase 1 work may begin. Keep it green; treat a red smoke test as a release blocker. (Note: NestJS's `ServerKafka` postfixes the consumer `groupId` with `-server`, so the Ingestion-Processor's broker-side group is `cascade-ingestion-processor-server`.)
