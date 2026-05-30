@@ -21,12 +21,13 @@ Event-driven. Collector → **Kafka** → two independent consumers: Ingestion-P
 
 - NestJS + TypeScript. Node 20+. (Pin versions in package.json.)
 - Lint/format: ESLint + Prettier. Commits: Conventional Commits (Commitlint + Husky).
-- Tests: Vitest (unit), Testcontainers (integration against real Cassandra/Kafka/Postgres). Don't mock the database in integration tests.
+- Tests: Vitest (unit), Testcontainers (integration against real Cassandra/Kafka/Postgres). Don't mock the database in integration tests. NestJS services need `unplugin-swc` in their `vitest.config.ts` so decorator metadata is emitted for DI (see `services/collector`). Gate Docker-dependent integration tests behind `SKIP_INTEGRATION=1`.
 - Monorepo: `services/`, `libs/` (shared contracts), `infra/` (Terraform + docker-compose), `docs/`.
 
 ## Local env gotchas
 
 - Cassandra needs a healthcheck + startup wait; don't connect before it's ready.
+- Cassandra datacenter is **`datacenter1`** (default SimpleSnitch ignores `CASSANDRA_DC`). Clients must set `localDataCenter`/`CASSANDRA_LOCAL_DC=datacenter1`, or the driver finds no hosts.
 - Kafka listener config matters: advertise a host-reachable listener for tooling AND an internal listener for containers. Use the container service name (not `localhost`) for service-to-service; use `127.0.0.1:<mapped-port>` from the host.
 
 ## Working agreement (IMPORTANT)

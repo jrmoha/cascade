@@ -121,3 +121,49 @@ npm install
 **Phase 1**: production-grade ingestion, schema validation, real aggregations.
 
 **Phase 2**: load testing, chaos engineering, observability stack, AWS deployment.
+
+---
+
+## 8. Collector service (Phase 0 — KAN-17)
+
+The first service of the write path. A thin NestJS app exposing a single endpoint:
+
+- `POST /collect` — accepts an event, performs **light** validation (`projectId` and
+  `type` required, non-empty strings; `timestamp` and `payload` optional), enriches it
+  into the canonical [`RawEvent`](contracts/raw-event.md) envelope, produces it to the
+  Kafka `raw-events` topic, and returns `202 Accepted` with the stamped `eventId`.
+
+Key decisions:
+
+- **Kafka client:** `@nestjs/microservices` Kafka transport (`ClientKafka`) in
+  producer-only mode. Brokers come from `KAFKA_BOOTSTRAP_SERVERS` (default
+  `localhost:9092`).
+- **Message key = `projectId`.** All events for a project land on the same partition,
+  preserving per-project ordering and aligning with the Cassandra
+  `(project_id, time_window)` partitioning.
+- **`eventId` is server-stamped** (UUID v4) when absent. This is the stable idempotency
+  key consumers use downstream for dedup (see ADR-0001 and the idempotency constraint
+  above).
+
+Light validation only here — real per-project schema validation and API-key checks are
+Phase 1. The Collector owns no data store. Run/verify steps:
+[runbooks/collector.md](runbooks/collector.md).
+
+---
+
+## 9. Ingestion-Processor service (Phase 0 — KAN-18)
+
+The second write-path service. A NestJS **Kafka microservice** (consumer group
+`cascade-ingestion-processor`) that consumes `raw-events` and appends each event to
+Cassandra.
+
+- **Consume:** `@nestjs/microservices` Kafka transport, `@EventPattern('raw-events')`.
+- **Table:** `cascade.raw_events`, ensured on startup (`IF NOT EXISTS`). Query-first:
+  partition key `(project_id, time_window)` (hourly UTC bucket), clustering key
+  `event_id`. Serves `SELECT … WHERE project_id = ? AND time_window = ?`. See the
+  [Cassandra mapping](contracts/raw-event.md#cassandra-mapping-ingestion-processor-kan-18).
+- **Idempotency:** writes are primary-key upserts, so Kafka's at-least-once redelivery
+  never duplicates rows — no separate dedup needed.
+
+Minimal modelling only (one table); secondary query tables, TTLs, and prod topology are
+Phase 1. Run/verify steps: [runbooks/ingestion-processor.md](runbooks/ingestion-processor.md).
