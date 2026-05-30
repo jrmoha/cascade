@@ -51,7 +51,7 @@ Services communicate **asynchronously via Kafka** by default. Synchronous calls 
 | **Redis**      | Hot counters, leaderboards, rate-limit buckets                | Sub-millisecond reads; TTL-based eviction for time windows             |
 | **PostgreSQL** | Project metadata, aggregated funnel/retention views, API keys | ACID, relational; low write volume; good for structured read models    |
 
-See [adr/0001-event-driven-architecture.md](adr/0001-event-driven-architecture.md) for the rationale behind this topology.
+See [adr/0001-overall-architecture.md](adr/0001-overall-architecture.md) for the rationale behind this topology.
 
 ---
 

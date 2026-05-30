@@ -13,9 +13,9 @@ ADRs follow the [MADR](https://adr.github.io/madr/) lightweight template:
 
 ## Index
 
-| #                                         | Title                                    | Status   |
-| ----------------------------------------- | ---------------------------------------- | -------- |
-| [0001](0001-event-driven-architecture.md) | Event-driven service topology with Kafka | Accepted |
+| #                                    | Title                                                                  | Status   |
+| ------------------------------------ | ---------------------------------------------------------------------- | -------- |
+| [0001](0001-overall-architecture.md) | Overall system architecture (CQRS + Kafka + Cassandra + microservices) | Accepted |
 
 ## Creating a new ADR
 
