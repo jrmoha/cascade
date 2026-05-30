@@ -53,6 +53,21 @@ services:
       retries: 10
       start_period: 30s
 
+  # Web UI for browsing topics, messages, and consumer groups at http://localhost:8080.
+  # Connects over the internal listener (kafka:29092), not the host port.
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    container_name: cascade-kafka-ui
+    ports:
+      - '8080:8080'
+    environment:
+      KAFKA_CLUSTERS_0_NAME: cascade-local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      DYNAMIC_CONFIG_ENABLED: 'true'
+    depends_on:
+      kafka:
+        condition: service_healthy
+
   redis:
     image: redis:7.2-alpine
     container_name: cascade-redis
