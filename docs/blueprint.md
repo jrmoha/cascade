@@ -148,3 +148,22 @@ Key decisions:
 Light validation only here — real per-project schema validation and API-key checks are
 Phase 1. The Collector owns no data store. Run/verify steps:
 [runbooks/collector.md](runbooks/collector.md).
+
+---
+
+## 9. Ingestion-Processor service (Phase 0 — KAN-18)
+
+The second write-path service. A NestJS **Kafka microservice** (consumer group
+`cascade-ingestion-processor`) that consumes `raw-events` and appends each event to
+Cassandra.
+
+- **Consume:** `@nestjs/microservices` Kafka transport, `@EventPattern('raw-events')`.
+- **Table:** `cascade.raw_events`, ensured on startup (`IF NOT EXISTS`). Query-first:
+  partition key `(project_id, time_window)` (hourly UTC bucket), clustering key
+  `event_id`. Serves `SELECT … WHERE project_id = ? AND time_window = ?`. See the
+  [Cassandra mapping](contracts/raw-event.md#cassandra-mapping-ingestion-processor-kan-18).
+- **Idempotency:** writes are primary-key upserts, so Kafka's at-least-once redelivery
+  never duplicates rows — no separate dedup needed.
+
+Minimal modelling only (one table); secondary query tables, TTLs, and prod topology are
+Phase 1. Run/verify steps: [runbooks/ingestion-processor.md](runbooks/ingestion-processor.md).

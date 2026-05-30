@@ -27,6 +27,7 @@ Event-driven. Collector → **Kafka** → two independent consumers: Ingestion-P
 ## Local env gotchas
 
 - Cassandra needs a healthcheck + startup wait; don't connect before it's ready.
+- Cassandra datacenter is **`datacenter1`** (default SimpleSnitch ignores `CASSANDRA_DC`). Clients must set `localDataCenter`/`CASSANDRA_LOCAL_DC=datacenter1`, or the driver finds no hosts.
 - Kafka listener config matters: advertise a host-reachable listener for tooling AND an internal listener for containers. Use the container service name (not `localhost`) for service-to-service; use `127.0.0.1:<mapped-port>` from the host.
 
 ## Working agreement (IMPORTANT)

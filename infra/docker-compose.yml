@@ -6,7 +6,9 @@ services:
       - '9042:9042'
     environment:
       CASSANDRA_CLUSTER_NAME: cascade-local
-      CASSANDRA_DC: dc1
+      # Default SimpleSnitch ignores CASSANDRA_DC, so the datacenter is
+      # "datacenter1". Keep this aligned with clients' localDataCenter.
+      CASSANDRA_DC: datacenter1
       CASSANDRA_RACK: rack1
       MAX_HEAP_SIZE: 512M
       HEAP_NEWSIZE: 128M
