@@ -52,7 +52,8 @@ Alternatives rejected:
   second toolchain for no current benefit — every producer/consumer today is TypeScript. Revisit if
   a non-TS producer appears.
 - **A NestJS Zod validation pipe replacing the HTTP DTO:** viable, but mixes a new validation style
-  into the HTTP layer for marginal gain; deferred.
+  into the HTTP layer for marginal gain; deferred at the time of this ADR. (Subsequently adopted in
+  ADR-0005 / KAN-22, which needs the edge to validate against the shared contract.)
 
 ## Consequences
 

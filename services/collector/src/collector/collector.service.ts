@@ -1,9 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { ClientKafka } from '@nestjs/microservices';
-import { RAW_EVENTS_TOPIC, RawEvent, rawEventSchema } from '@cascade/contracts';
+import { CollectEventInput, RAW_EVENTS_TOPIC, RawEvent, rawEventSchema } from '@cascade/contracts';
 import { lastValueFrom } from 'rxjs';
-import { CollectEventDto } from './dto/collect-event.dto';
 import { KAFKA_PRODUCER } from './kafka.tokens';
 
 @Injectable()
@@ -29,19 +28,19 @@ export class CollectorService implements OnApplicationBootstrap {
    *
    * @returns the eventId stamped on the published event.
    */
-  async collect(dto: CollectEventDto): Promise<string> {
+  async collect(input: CollectEventInput): Promise<string> {
     const receivedAt = new Date().toISOString();
 
     const event: RawEvent = rawEventSchema.parse({
       eventId: randomUUID(),
-      projectId: dto.projectId,
-      type: dto.type,
-      occurredAt: dto.occurredAt ?? receivedAt,
+      projectId: input.projectId,
+      type: input.type,
+      occurredAt: input.occurredAt ?? receivedAt,
       receivedAt,
-      payload: dto.payload ?? {},
-      sessionId: dto.sessionId,
-      actorId: dto.actorId,
-      source: dto.source,
+      payload: input.payload ?? {},
+      sessionId: input.sessionId,
+      actorId: input.actorId,
+      source: input.source,
     });
 
     await lastValueFrom(
