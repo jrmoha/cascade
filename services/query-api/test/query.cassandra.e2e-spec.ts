@@ -46,12 +46,14 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('GET /query (integration)'
     await seed.execute(`
       CREATE TABLE IF NOT EXISTS cascade.raw_events (
         project_id text, time_window text, event_id uuid,
-        type text, event_time timestamp, payload text,
+        type text, occurred_at timestamp, received_at timestamp, payload text,
+        session_id text, actor_id text, source text,
         PRIMARY KEY ((project_id, time_window), event_id)
       )`);
 
     const insert = `INSERT INTO cascade.raw_events
-      (project_id, time_window, event_id, type, event_time, payload) VALUES (?, ?, ?, ?, ?, ?)`;
+      (project_id, time_window, event_id, type, occurred_at, received_at, payload, session_id, actor_id, source)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
     await seed.execute(
       insert,
       [
@@ -60,7 +62,11 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('GET /query (integration)'
         types.Uuid.fromString('11111111-1111-4111-8111-111111111111'),
         'level_complete',
         new Date(now),
+        new Date(now),
         JSON.stringify({ level: 3 }),
+        'sess-9',
+        'player-42',
+        'unity-sdk@1.4.0',
       ],
       { prepare: true },
     );
@@ -97,8 +103,12 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('GET /query (integration)'
         eventId: '11111111-1111-4111-8111-111111111111',
         projectId: 'game-1',
         type: 'level_complete',
-        timestamp: now,
+        occurredAt: now,
+        receivedAt: now,
         payload: { level: 3 },
+        sessionId: 'sess-9',
+        actorId: 'player-42',
+        source: 'unity-sdk@1.4.0',
       },
     ]);
   });

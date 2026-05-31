@@ -2,7 +2,7 @@
 
 Write-path consumer. A NestJS Kafka microservice that consumes the `raw-events`
 topic (consumer group `cascade-ingestion-processor`) and appends each event to
-Cassandra. See [contracts/raw-event.md](../contracts/raw-event.md).
+Cassandra. See [contracts/events.md](../contracts/events.md).
 
 ## Configuration
 
@@ -19,9 +19,16 @@ The service ensures the keyspace + table on startup (`IF NOT EXISTS`). Reference
 [`services/ingestion-processor/src/cassandra/schema.cql`](../../services/ingestion-processor/src/cassandra/schema.cql).
 
 - **Table:** `cascade.raw_events`
-- **Partition key:** `(project_id, time_window)` — `time_window` is the hourly UTC bucket `YYYY-MM-DDTHH`.
+- **Partition key:** `(project_id, time_window)` — `time_window` is the hourly UTC bucket `YYYY-MM-DDTHH`, derived from `occurred_at` (event time).
 - **Clustering key:** `event_id` — makes `INSERT` an idempotent upsert.
+- **Columns:** `type`, `occurred_at` (event time), `received_at` (ingest time), `payload`, and nullable `session_id` / `actor_id` / `source`.
 - **Query it serves:** `SELECT * FROM cascade.raw_events WHERE project_id = ? AND time_window = ?`
+
+> **Schema migration (KAN-21):** the envelope split `event_time` into `occurred_at` +
+> `received_at` and added the optional columns. `CREATE TABLE IF NOT EXISTS` will **not** alter
+> a pre-existing local table — if you have persistent dev data, recreate it once with
+> `docker compose -f infra/docker-compose.yml down -v` (RF=1 throwaway data). Tests use ephemeral
+> containers and are unaffected.
 
 ## Run locally
 
@@ -54,8 +61,9 @@ docker exec cascade-cassandra cqlsh -e \
   "SELECT * FROM cascade.raw_events WHERE project_id='kan18-demo' AND time_window='$(date -u +%Y-%m-%dT%H)';"
 ```
 
-A row appears with the matching `event_id`, hourly `time_window`, `event_time`, and
-JSON `payload`. Re-delivering the same event leaves exactly one row (idempotent upsert).
+A row appears with the matching `event_id`, hourly `time_window`, `occurred_at`,
+`received_at`, and JSON `payload`. Re-delivering the same event leaves exactly one row
+(idempotent upsert).
 
 > Querying by `project_id` alone fails with "use ALLOW FILTERING" — that is the
 > query-first model working as intended; always query with the full partition key.

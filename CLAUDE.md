@@ -23,6 +23,7 @@ Event-driven. Collector → **Kafka** → two independent consumers: Ingestion-P
 - Lint/format: ESLint + Prettier. Commits: Conventional Commits (Commitlint + Husky).
 - Tests: Vitest (unit), Testcontainers (integration against real Cassandra/Kafka/Postgres). Don't mock the database in integration tests. NestJS services need `unplugin-swc` in their `vitest.config.ts` so decorator metadata is emitted for DI (see `services/collector`). Gate Docker-dependent integration tests behind `SKIP_INTEGRATION=1`.
 - Monorepo: `services/`, `libs/` (shared contracts), `infra/` (Terraform + docker-compose), `docs/`.
+- **Shared contracts use Zod as the single source of truth.** Define the schema in `@cascade/contracts` and derive the TS type via `z.infer` (never hand-write a parallel `interface` + validator — they drift). The canonical event envelope is `rawEventSchema`/`RawEvent` (see ADR-0004, `docs/contracts/events.md`). It separates `occurredAt` (event time, from the client) from `receivedAt` (ingest time, stamped by the Collector); Cassandra `time_window` buckets by `occurredAt`. The Collector validates before producing and the Ingestion-Processor validates on consume.
 
 ## Local env gotchas
 

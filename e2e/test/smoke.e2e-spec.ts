@@ -98,10 +98,14 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Walking-skeleton smoke (e
     const sent = {
       projectId: 'game-1',
       type: 'level_complete',
-      // Explicit timestamp so the read-back assertion is exact (the Collector
-      // would otherwise stamp ingestion time).
-      timestamp: new Date().toISOString(),
+      // Explicit occurredAt (event time) so the read-back assertion is exact;
+      // the Collector stamps receivedAt (ingest time) itself.
+      occurredAt: new Date().toISOString(),
       payload: { level: 7, score: 4200 },
+      // Optional envelope fields — assert they persist all the way through.
+      sessionId: 'sess-9',
+      actorId: 'player-42',
+      source: 'unity-sdk@1.4.0',
     };
 
     // Event in.
@@ -123,13 +127,20 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Walking-skeleton smoke (e
       return (res.body.events as RawEvent[]).find((e) => e.eventId === eventId);
     });
 
-    // What came out the read path is exactly what went in the write path.
-    expect(event).toEqual({
+    // receivedAt is stamped by the Collector (ingest time), so assert it is a
+    // valid ISO timestamp rather than a fixed value, then check the rest of the
+    // envelope round-tripped exactly.
+    const { receivedAt, ...rest } = event as RawEvent;
+    expect(Number.isNaN(Date.parse(receivedAt))).toBe(false);
+    expect(rest).toEqual({
       eventId,
       projectId: sent.projectId,
       type: sent.type,
-      timestamp: sent.timestamp,
+      occurredAt: sent.occurredAt,
       payload: sent.payload,
+      sessionId: sent.sessionId,
+      actorId: sent.actorId,
+      source: sent.source,
     });
   });
 });

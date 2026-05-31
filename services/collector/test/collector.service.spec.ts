@@ -49,20 +49,27 @@ describe('CollectorService', () => {
     expect(value.eventId).toBe(returnedId);
   });
 
-  it('defaults timestamp to ingestion time when absent', async () => {
+  it('stamps receivedAt at ingestion time', async () => {
     const before = Date.now();
     await service.collect(baseDto());
     const { value } = publishedEvent();
-    const ts = Date.parse(value.timestamp);
+    const ts = Date.parse(value.receivedAt);
     expect(Number.isNaN(ts)).toBe(false);
     expect(ts).toBeGreaterThanOrEqual(before - 1000);
   });
 
-  it('preserves a client-supplied timestamp', async () => {
-    const dto = Object.assign(baseDto(), { timestamp: '2024-01-01T00:00:00.000Z' });
+  it('defaults occurredAt to receivedAt when the client omits it', async () => {
+    await service.collect(baseDto());
+    const { value } = publishedEvent();
+    expect(value.occurredAt).toBe(value.receivedAt);
+  });
+
+  it('preserves a client-supplied occurredAt distinct from receivedAt', async () => {
+    const dto = Object.assign(baseDto(), { occurredAt: '2024-01-01T00:00:00.000Z' });
     await service.collect(dto);
     const { value } = publishedEvent();
-    expect(value.timestamp).toBe('2024-01-01T00:00:00.000Z');
+    expect(value.occurredAt).toBe('2024-01-01T00:00:00.000Z');
+    expect(value.receivedAt).not.toBe(value.occurredAt);
   });
 
   it('defaults payload to an empty object when absent', async () => {
@@ -70,5 +77,18 @@ describe('CollectorService', () => {
     await service.collect(dto);
     const { value } = publishedEvent();
     expect(value.payload).toEqual({});
+  });
+
+  it('passes through the optional sessionId / actorId / source fields', async () => {
+    const dto = Object.assign(baseDto(), {
+      sessionId: 'sess-9',
+      actorId: 'player-42',
+      source: 'unity-sdk@1.4.0',
+    });
+    await service.collect(dto);
+    const { value } = publishedEvent();
+    expect(value.sessionId).toBe('sess-9');
+    expect(value.actorId).toBe('player-42');
+    expect(value.source).toBe('unity-sdk@1.4.0');
   });
 });

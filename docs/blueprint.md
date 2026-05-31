@@ -129,9 +129,10 @@ npm install
 The first service of the write path. A thin NestJS app exposing a single endpoint:
 
 - `POST /collect` — accepts an event, performs **light** validation (`projectId` and
-  `type` required, non-empty strings; `timestamp` and `payload` optional), enriches it
-  into the canonical [`RawEvent`](contracts/raw-event.md) envelope, produces it to the
-  Kafka `raw-events` topic, and returns `202 Accepted` with the stamped `eventId`.
+  `type` required, non-empty strings; `occurredAt` and `payload` optional), enriches it
+  into the canonical [`RawEvent`](contracts/events.md) envelope (stamping `eventId` and
+  the ingest-time `receivedAt`), produces it to the Kafka `raw-events` topic, and returns
+  `202 Accepted` with the stamped `eventId`.
 
 Key decisions:
 
@@ -161,7 +162,7 @@ Cassandra.
 - **Table:** `cascade.raw_events`, ensured on startup (`IF NOT EXISTS`). Query-first:
   partition key `(project_id, time_window)` (hourly UTC bucket), clustering key
   `event_id`. Serves `SELECT … WHERE project_id = ? AND time_window = ?`. See the
-  [Cassandra mapping](contracts/raw-event.md#cassandra-mapping-ingestion-processor-kan-18).
+  [Cassandra mapping](contracts/events.md#cassandra-mapping-ingestion-processor).
 - **Idempotency:** writes are primary-key upserts, so Kafka's at-least-once redelivery
   never duplicates rows — no separate dedup needed.
 
