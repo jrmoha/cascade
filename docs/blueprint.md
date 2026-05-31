@@ -165,6 +165,10 @@ Cassandra.
   [Cassandra mapping](contracts/events.md#cassandra-mapping-ingestion-processor).
 - **Idempotency:** writes are primary-key upserts, so Kafka's at-least-once redelivery
   never duplicates rows — no separate dedup needed.
+- **Dead-letter handling:** messages that fail processing (can't be validated, or whose
+  write keeps failing after a bounded retry) are routed to `raw-events.dlq` rather than
+  dropped or left to block the partition. See ADR-0006 and
+  [runbooks/dlq.md](runbooks/dlq.md).
 
 Minimal modelling only (one table); secondary query tables, TTLs, and prod topology are
 Phase 1. Run/verify steps: [runbooks/ingestion-processor.md](runbooks/ingestion-processor.md).

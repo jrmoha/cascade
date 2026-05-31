@@ -2,7 +2,8 @@
 
 Write-path consumer. A NestJS Kafka microservice that consumes the `raw-events`
 topic (consumer group `cascade-ingestion-processor`) and appends each event to
-Cassandra. See [contracts/events.md](../contracts/events.md).
+Cassandra. See [contracts/events.md](../contracts/events.md). Events that fail processing are
+routed to a dead-letter topic — see [dlq.md](dlq.md).
 
 ## Configuration
 
