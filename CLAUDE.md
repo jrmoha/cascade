@@ -13,7 +13,7 @@ Event-driven. Collector → **Kafka** → two independent consumers: Ingestion-P
 ## Non-negotiable rules
 
 - **Write path and read path are separate.** The Query API NEVER scans raw Cassandra live — it reads pre-aggregated views. If a feature seems to need a live raw scan, that's a design smell; stop and flag it. (Phase-0 exception: KAN-19's `GET /query` reads raw Cassandra to close the walking-skeleton loop — partition-key-bounded only, removed in Phase 1. See ADR-0003. Do not treat as precedent.)
-- **Cassandra is modeled query-first.** Never add a table without stating the exact query it serves and its partition key. Watch partition size; bucket by `project_id + time_window`.
+- **Cassandra is modeled query-first.** Never add a table without stating the exact query it serves and its partition key. Watch partition size; bucket by `project_id + time_bucket` (hourly). Schema changes go through the versioned migrations in `services/ingestion-processor/migrations/` (applied by `Migrator` on startup and `npm run migrate`) — never ad-hoc `cqlsh` or inline `CREATE TABLE`. See ADR-0007 for the `raw_events` model.
 - **All Kafka consumers must be idempotent.** Delivery is at-least-once. Re-processing the same message must not double-count. Consumers must not throw out of the handler (a poison message would loop forever and block its partition): route failures to the dead-letter topic instead — validation failures immediately, transient (persistence) failures after a bounded retry. See ADR-0006 / `docs/runbooks/dlq.md`.
 - **No new cross-service synchronous call without justification.** Prefer events. Sync calls (gRPC/REST) only for genuine request/response needs.
 

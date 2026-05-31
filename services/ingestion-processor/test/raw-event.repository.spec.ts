@@ -32,15 +32,17 @@ describe('RawEventRepository', () => {
     expect(cql).toContain('INSERT INTO cascade.raw_events');
     expect(options).toEqual({ prepare: true });
 
-    const [projectId, timeWindow, eventId, type, occurredAt, receivedAt, payload] = params;
+    // Column order: project_id, time_bucket, occurred_at, event_id, type,
+    // received_at, payload, session_id, actor_id, source.
+    const [projectId, timeBucket, occurredAt, eventId, type, receivedAt, payload] = params;
     expect(projectId).toBe('game-1');
-    // time_window buckets by occurredAt (event time), not receivedAt.
-    expect(timeWindow).toBe('2026-05-30T15');
+    // time_bucket buckets by occurredAt (event time), not receivedAt.
+    expect(timeBucket).toBe('2026-05-30T15');
+    expect(occurredAt).toBeInstanceOf(Date);
+    expect((occurredAt as Date).toISOString()).toBe(event.occurredAt);
     expect(eventId).toBeInstanceOf(types.Uuid);
     expect(eventId.toString()).toBe(event.eventId);
     expect(type).toBe('level_complete');
-    expect(occurredAt).toBeInstanceOf(Date);
-    expect((occurredAt as Date).toISOString()).toBe(event.occurredAt);
     expect(receivedAt).toBeInstanceOf(Date);
     expect((receivedAt as Date).toISOString()).toBe(event.receivedAt);
     expect(payload).toBe('{"level":3}');

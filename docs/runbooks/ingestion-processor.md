@@ -14,20 +14,27 @@ routed to a dead-letter topic — see [dlq.md](dlq.md).
 | `CASSANDRA_PORT`           | `9042`           |                                                                                                     |
 | `CASSANDRA_LOCAL_DC`       | `datacenter1`    | Must match the cluster's datacenter. With the default SimpleSnitch it is `datacenter1` (NOT `dc1`). |
 
-## Schema
+## Schema & migrations
 
-The service ensures the keyspace + table on startup (`IF NOT EXISTS`). Reference DDL:
-[`services/ingestion-processor/src/cassandra/schema.cql`](../../services/ingestion-processor/src/cassandra/schema.cql).
+Schema is owned by **versioned migrations** (KAN-24, ADR-0007), the single source of truth:
+[`services/ingestion-processor/migrations/`](../../services/ingestion-processor/migrations). A small
+`Migrator` applies each `*.cql` exactly once (tracked in `cascade.schema_migrations`) — on service
+startup, and standalone:
 
-- **Table:** `cascade.raw_events`
-- **Partition key:** `(project_id, time_window)` — `time_window` is the hourly UTC bucket `YYYY-MM-DDTHH`, derived from `occurred_at` (event time).
-- **Clustering key:** `event_id` — makes `INSERT` an idempotent upsert.
-- **Columns:** `type`, `occurred_at` (event time), `received_at` (ingest time), `payload`, and nullable `session_id` / `actor_id` / `source`.
-- **Query it serves:** `SELECT * FROM cascade.raw_events WHERE project_id = ? AND time_window = ?`
+```bash
+npm run build -w @cascade/ingestion-processor
+npm run migrate -w @cascade/ingestion-processor   # idempotent; re-running applies nothing new
+```
 
-> **Schema migration (KAN-21):** the envelope split `event_time` into `occurred_at` +
-> `received_at` and added the optional columns. `CREATE TABLE IF NOT EXISTS` will **not** alter
-> a pre-existing local table — if you have persistent dev data, recreate it once with
+- **Table:** `cascade.raw_events` (query-first model — see ADR-0007).
+- **Partition key:** `(project_id, time_bucket)` — `time_bucket` is the hourly UTC bucket `YYYY-MM-DDTHH`, derived from `occurred_at` (event time). Bounds partition size.
+- **Clustering:** `(occurred_at DESC, event_id ASC)` — newest-first reads from the DB; `event_id` gives tie-break/uniqueness → idempotent upsert.
+- **TTL:** `default_time_to_live = 2592000` (30 days).
+- **Query it serves:** `SELECT * FROM cascade.raw_events WHERE project_id = ? AND time_bucket = ?` (never `ALLOW FILTERING`).
+
+> **Breaking key change (KAN-24):** the partition/clustering key changed, so the new table is
+> incompatible with the Phase-0 one. The migration uses `CREATE TABLE` (not `IF NOT EXISTS`) so a
+> conflicting pre-existing local table fails loudly — recreate dev data once with
 > `docker compose -f infra/docker-compose.yml down -v` (RF=1 throwaway data). Tests use ephemeral
 > containers and are unaffected.
 
@@ -59,10 +66,10 @@ curl -s -X POST localhost:3001/collect -H 'content-type: application/json' \
 
 # 4. read it back (use the full partition key — project_id + the hourly window)
 docker exec cascade-cassandra cqlsh -e \
-  "SELECT * FROM cascade.raw_events WHERE project_id='kan18-demo' AND time_window='$(date -u +%Y-%m-%dT%H)';"
+  "SELECT * FROM cascade.raw_events WHERE project_id='kan18-demo' AND time_bucket='$(date -u +%Y-%m-%dT%H)';"
 ```
 
-A row appears with the matching `event_id`, hourly `time_window`, `occurred_at`,
+A row appears with the matching `event_id`, hourly `time_bucket`, `occurred_at`,
 `received_at`, and JSON `payload`. Re-delivering the same event leaves exactly one row
 (idempotent upsert).
 
