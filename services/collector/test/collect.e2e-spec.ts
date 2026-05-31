@@ -74,11 +74,51 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('POST /collect (integratio
     expect(Number.isNaN(Date.parse(msg.value.receivedAt))).toBe(false);
   });
 
-  it('rejects an event missing projectId with 400 and produces nothing', async () => {
+  it('rejects an event missing a required field with a structured 400 and produces nothing', async () => {
     const countBefore = received.length;
-    await request(server()).post('/collect').send({ type: 'foo' }).expect(400);
+    const res = await request(server())
+      .post('/collect')
+      .send({ type: 'level_complete' })
+      .expect(400);
+
+    expect(res.body.message).toBe('Event validation failed');
+    expect(res.body.errors).toEqual(
+      expect.arrayContaining([expect.objectContaining({ field: 'projectId' })]),
+    );
+    for (const e of res.body.errors) {
+      expect(typeof e.field).toBe('string');
+      expect(typeof e.reason).toBe('string');
+    }
+
     await new Promise((r) => setTimeout(r, 1000));
     expect(received.length).toBe(countBefore);
+  });
+
+  it('rejects a wrong-typed required field with 400 and produces nothing', async () => {
+    const countBefore = received.length;
+    const res = await request(server())
+      .post('/collect')
+      .send({ projectId: 123, type: 'level_complete' })
+      .expect(400);
+
+    expect(res.body.errors).toEqual(
+      expect.arrayContaining([expect.objectContaining({ field: 'projectId' })]),
+    );
+
+    await new Promise((r) => setTimeout(r, 1000));
+    expect(received.length).toBe(countBefore);
+  });
+
+  it('ignores a client-supplied receivedAt and stamps it server-side', async () => {
+    const clientReceivedAt = '2000-01-01T00:00:00.000Z';
+    const res = await request(server())
+      .post('/collect')
+      .send({ projectId: 'game-2', type: 'level_start', receivedAt: clientReceivedAt })
+      .expect(202);
+
+    const msg = await waitFor(() => received.find((m) => m.value.eventId === res.body.eventId));
+    expect(msg.value.receivedAt).not.toBe(clientReceivedAt);
+    expect(Number.isNaN(Date.parse(msg.value.receivedAt))).toBe(false);
   });
 });
 

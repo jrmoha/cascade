@@ -69,3 +69,26 @@ export const rawEventSchema = z
  * boundary agree on the same shape.
  */
 export type RawEvent = z.infer<typeof rawEventSchema>;
+
+/**
+ * The client-supplied input accepted by the Collector's `POST /collect`,
+ * **derived from {@link rawEventSchema}** so the ingest gate validates against
+ * the one canonical contract rather than a re-implemented copy (KAN-22).
+ *
+ * Differences from the full envelope:
+ * - `eventId` and `receivedAt` are omitted — they are stamped server-side. The
+ *   schema `.strip()`s unknown keys, so a client that sends them (or any other
+ *   stray field) has them silently ignored and re-stamped, rather than rejected.
+ * - `occurredAt` is optional — the Collector defaults it to `receivedAt` when
+ *   the client omits it. (`payload` is already optional via its default.)
+ *
+ * Missing or wrong-typed *required* fields (`projectId`, `type`) still fail
+ * validation, so bad data never reaches the `raw-events` topic.
+ */
+export const collectEventSchema = rawEventSchema
+  .omit({ eventId: true, receivedAt: true })
+  .partial({ occurredAt: true })
+  .strip();
+
+/** The validated, client-supplied shape accepted by `POST /collect`. */
+export type CollectEventInput = z.infer<typeof collectEventSchema>;
