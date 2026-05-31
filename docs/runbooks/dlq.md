@@ -53,7 +53,7 @@ drift); `validation` points at a producer emitting events that bypass or violate
 ## Replay
 
 Once the root cause is fixed, re-emit the originals onto `raw-events`. Writes are idempotent
-(primary key `((project_id, time_window), event_id)`), so replaying an event that _did_ eventually
+(primary key `((project_id, time_bucket), occurred_at, event_id)`), so replaying an event that _did_ eventually
 land is harmless.
 
 - **Persistence failures** carry a parsed `originalEvent` — re-publish that object to `raw-events`,

@@ -45,10 +45,10 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Ingestion → Cassandra (
     ...overrides,
   });
 
-  async function rowsFor(projectId: string, timeWindow: string) {
+  async function rowsFor(projectId: string, timeBucket: string) {
     const rs = await cassandra.execute(
-      'SELECT project_id, time_window, event_id, type, occurred_at, received_at, payload, session_id, actor_id, source FROM cascade.raw_events WHERE project_id = ? AND time_window = ?',
-      [projectId, timeWindow],
+      'SELECT project_id, time_bucket, event_id, type, occurred_at, received_at, payload, session_id, actor_id, source FROM cascade.raw_events WHERE project_id = ? AND time_bucket = ?',
+      [projectId, timeBucket],
       { prepare: true },
     );
     return rs.rows;

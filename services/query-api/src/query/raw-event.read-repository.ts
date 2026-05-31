@@ -1,13 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { types } from 'cassandra-driver';
-import { RawEvent, recentHourlyWindows } from '@cascade/contracts';
+import { RawEvent, recentHourlyBuckets } from '@cascade/contracts';
 import { CassandraService, KEYSPACE } from '../cassandra/cassandra.service';
 
 const SELECT_RAW_EVENTS = `
-  SELECT project_id, time_window, event_id, type, occurred_at, received_at,
+  SELECT project_id, time_bucket, event_id, type, occurred_at, received_at,
          payload, session_id, actor_id, source
   FROM ${KEYSPACE}.raw_events
-  WHERE project_id = ? AND time_window = ?`;
+  WHERE project_id = ? AND time_bucket = ?`;
 
 /**
  * Maps a Cassandra row back to the wire `RawEvent` shape produced by the
@@ -42,10 +42,15 @@ export class RawEventReadRepository {
   /**
    * Read events for a project across the most recent `hours` hourly buckets.
    *
-   * Each bucket is a full partition `(project_id, time_window)`, so we issue one
-   * prepared single-partition SELECT per window and merge the results. This is
-   * deliberately partition-key-bounded: we never `ALLOW FILTERING` across
-   * partitions. Results are returned newest-first by event time (`occurredAt`).
+   * Each bucket is a full partition `(project_id, time_bucket)`, so we issue one
+   * prepared single-partition SELECT per bucket and concatenate the results.
+   * This is deliberately partition-key-bounded: we never `ALLOW FILTERING`
+   * across partitions.
+   *
+   * Ordering is newest-first by event time with no app-side sort: the table's
+   * `CLUSTERING ORDER BY (occurred_at DESC, …)` returns each bucket's rows
+   * newest-first, and `recentHourlyBuckets` yields buckets newest-first, so the
+   * concatenation is already globally ordered (KAN-24, ADR-0007).
    *
    * NOTE (Phase 0): reading raw Cassandra from the Query API is a temporary
    * walking-skeleton shortcut to close the ingest→store→read loop (KAN-19). The
@@ -53,16 +58,14 @@ export class RawEventReadRepository {
    * this raw read-back is removed in Phase 1. See ADR-0003.
    */
   async readRecent(projectId: string, hours: number): Promise<RawEvent[]> {
-    const windows = recentHourlyWindows(new Date(), hours);
+    const buckets = recentHourlyBuckets(new Date(), hours);
 
     const resultSets = await Promise.all(
-      windows.map((timeWindow) =>
-        this.cassandra.execute(SELECT_RAW_EVENTS, [projectId, timeWindow], { prepare: true }),
+      buckets.map((timeBucket) =>
+        this.cassandra.execute(SELECT_RAW_EVENTS, [projectId, timeBucket], { prepare: true }),
       ),
     );
 
-    return resultSets
-      .flatMap((rs) => rs.rows.map(toRawEvent))
-      .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+    return resultSets.flatMap((rs) => rs.rows.map(toRawEvent));
   }
 }

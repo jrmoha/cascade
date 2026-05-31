@@ -63,7 +63,7 @@ The Query API **never** scans raw Cassandra data live. All queries are served fr
 
 ### Cassandra: query-first modelling
 
-Every Cassandra table is designed for a specific query. Partition keys include `project_id + time_window` to keep partitions bounded. No table is added without a stated query and partition strategy.
+Every Cassandra table is designed for a specific query. Partition keys include `project_id + time_bucket` to keep partitions bounded. No table is added without a stated query and partition strategy. See ADR-0007 for the `raw_events` model.
 
 ### Kafka consumers: idempotency
 
@@ -141,7 +141,7 @@ Key decisions:
   `localhost:9092`).
 - **Message key = `projectId`.** All events for a project land on the same partition,
   preserving per-project ordering and aligning with the Cassandra
-  `(project_id, time_window)` partitioning.
+  `(project_id, time_bucket)` partitioning.
 - **`eventId` is server-stamped** (UUID v4) when absent. This is the stable idempotency
   key consumers use downstream for dedup (see ADR-0001 and the idempotency constraint
   above).
@@ -159,9 +159,10 @@ The second write-path service. A NestJS **Kafka microservice** (consumer group
 Cassandra.
 
 - **Consume:** `@nestjs/microservices` Kafka transport, `@EventPattern('raw-events')`.
-- **Table:** `cascade.raw_events`, ensured on startup (`IF NOT EXISTS`). Query-first:
-  partition key `(project_id, time_window)` (hourly UTC bucket), clustering key
-  `event_id`. Serves `SELECT … WHERE project_id = ? AND time_window = ?`. See the
+- **Table:** `cascade.raw_events`, created by versioned migrations (KAN-24, ADR-0007).
+  Query-first: partition key `(project_id, time_bucket)` (hourly UTC bucket), clustering
+  `(occurred_at DESC, event_id ASC)`, 30-day TTL. Serves
+  `SELECT … WHERE project_id = ? AND time_bucket = ?` newest-first. See the
   [Cassandra mapping](contracts/events.md#cassandra-mapping-ingestion-processor).
 - **Idempotency:** writes are primary-key upserts, so Kafka's at-least-once redelivery
   never duplicates rows — no separate dedup needed.

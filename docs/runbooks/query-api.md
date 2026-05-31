@@ -19,8 +19,9 @@ events for a project.
 | `hours`     | no       | `1`     | Hourly-bucket lookback (1 = current hour only). Integer 1–168. |
 
 Reads are **partition-key-bounded**: one prepared single-partition
-`SELECT ... WHERE project_id = ? AND time_window = ?` per hourly bucket, merged
-and returned newest-first. No `ALLOW FILTERING`.
+`SELECT ... WHERE project_id = ? AND time_bucket = ?` per hourly bucket,
+concatenated and returned newest-first (the table's `CLUSTERING ORDER BY
+(occurred_at DESC, …)` provides the order — see ADR-0007). No `ALLOW FILTERING`.
 
 Response:
 
