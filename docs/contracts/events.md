@@ -43,11 +43,12 @@ event lands in the window for **when it happened**, not when it arrived.
 
 ## Input to `POST /collect`
 
-The HTTP request body (`CollectEventDto`) is a deliberate **subset** of the envelope, validated
-at the HTTP boundary with `class-validator` (it is not a second source of truth — the Collector
-builds the full envelope and validates it against `rawEventSchema` before producing). Clients
-never supply `eventId` (server-generated) or `receivedAt` (ingest time); `occurredAt`, `payload`
-and the optional fields may be omitted:
+The request body is validated at the edge (KAN-22) against `collectEventSchema`, which is
+**derived from `rawEventSchema`** (`rawEventSchema.omit({ eventId, receivedAt }).partial({ occurredAt }).strip()`)
+— not a re-implemented copy, so the gate and the canonical contract can never diverge. Bad data
+is rejected here and never reaches the `raw-events` topic. Clients never supply `eventId`
+(server-generated) or `receivedAt` (ingest time); `occurredAt`, `payload`, and the optional
+fields may be omitted:
 
 ```jsonc
 {
@@ -61,7 +62,25 @@ and the optional fields may be omitted:
 }
 ```
 
-Unknown properties are rejected (`ValidationPipe` `whitelist + forbidNonWhitelisted`).
+- **Keys the client does not own are stripped, not rejected.** A client-supplied `receivedAt` or
+  `eventId` (or any unknown field) is silently ignored; `receivedAt` is always re-stamped
+  server-side at acceptance.
+- **A missing or wrong-typed required field returns `400`** with a structured body listing each
+  failing field and why:
+
+  ```jsonc
+  {
+    "statusCode": 400,
+    "error": "Bad Request",
+    "message": "Event validation failed",
+    "errors": [{ "field": "projectId", "reason": "Required" }],
+  }
+  ```
+
+- A valid event returns `202 Accepted` with the server-stamped `eventId`.
+
+This is synchronous, edge-level rejection. Downstream processing failures are a separate concern
+(the dead-letter flow, KAN-23).
 
 ## Example message on `raw-events`
 
