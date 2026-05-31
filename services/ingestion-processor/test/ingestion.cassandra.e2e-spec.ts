@@ -39,14 +39,15 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Ingestion → Cassandra (
     eventId: '8e8275f3-7874-43df-bbbf-f1a73a1aeb06',
     projectId: 'game-1',
     type: 'level_complete',
-    timestamp: '2026-05-30T15:16:50.165Z',
+    occurredAt: '2026-05-30T15:16:50.165Z',
+    receivedAt: '2026-05-30T15:16:50.200Z',
     payload: { level: 3 },
     ...overrides,
   });
 
   async function rowsFor(projectId: string, timeWindow: string) {
     const rs = await cassandra.execute(
-      'SELECT project_id, time_window, event_id, type, event_time, payload FROM cascade.raw_events WHERE project_id = ? AND time_window = ?',
+      'SELECT project_id, time_window, event_id, type, occurred_at, received_at, payload, session_id, actor_id, source FROM cascade.raw_events WHERE project_id = ? AND time_window = ?',
       [projectId, timeWindow],
       { prepare: true },
     );
@@ -54,7 +55,11 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Ingestion → Cassandra (
   }
 
   it('persists a consumed event as a queryable row', async () => {
-    const e = event();
+    const e = event({
+      sessionId: 'sess-9',
+      actorId: 'player-42',
+      source: 'unity-sdk@1.4.0',
+    });
     await repository.insert(e);
 
     const rows = await rowsFor('game-1', '2026-05-30T15');
@@ -63,7 +68,11 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Ingestion → Cassandra (
     expect(row.event_id.toString()).toBe(e.eventId);
     expect(row.type).toBe('level_complete');
     expect(JSON.parse(row.payload)).toEqual({ level: 3 });
-    expect(new Date(row.event_time).toISOString()).toBe(e.timestamp);
+    expect(new Date(row.occurred_at).toISOString()).toBe(e.occurredAt);
+    expect(new Date(row.received_at).toISOString()).toBe(e.receivedAt);
+    expect(row.session_id).toBe('sess-9');
+    expect(row.actor_id).toBe('player-42');
+    expect(row.source).toBe('unity-sdk@1.4.0');
   });
 
   it('is idempotent: re-inserting the same event yields exactly one row', async () => {

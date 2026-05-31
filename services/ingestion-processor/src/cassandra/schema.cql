@@ -9,15 +9,20 @@ CREATE KEYSPACE IF NOT EXISTS cascade
 
 -- Query this table serves:
 --   SELECT * FROM cascade.raw_events WHERE project_id = ? AND time_window = ?;
--- Partition key (project_id, time_window) bounds partition size (hourly bucket);
--- clustering key event_id is unique within a partition and makes INSERT an
--- idempotent upsert (safe under Kafka at-least-once redelivery).
+-- Partition key (project_id, time_window) bounds partition size (hourly bucket,
+-- derived from occurred_at / event time); clustering key event_id is unique
+-- within a partition and makes INSERT an idempotent upsert (safe under Kafka
+-- at-least-once redelivery).
 CREATE TABLE IF NOT EXISTS cascade.raw_events (
   project_id   text,
-  time_window  text,        -- hourly bucket 'YYYY-MM-DDTHH' (UTC)
+  time_window  text,        -- hourly bucket 'YYYY-MM-DDTHH' (UTC), from occurred_at
   event_id     uuid,
   type         text,
-  event_time   timestamp,   -- original event timestamp
+  occurred_at  timestamp,   -- event time (reported by client)
+  received_at  timestamp,   -- ingest time (stamped by Collector)
   payload      text,        -- JSON-encoded event payload
+  session_id   text,        -- optional: client session
+  actor_id     text,        -- optional: player/user the event is about
+  source       text,        -- optional: emitting source / SDK version
   PRIMARY KEY ((project_id, time_window), event_id)
 );

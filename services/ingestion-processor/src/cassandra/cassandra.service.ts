@@ -14,8 +14,12 @@ const CREATE_RAW_EVENTS = `
     time_window  text,
     event_id     uuid,
     type         text,
-    event_time   timestamp,
+    occurred_at  timestamp,
+    received_at  timestamp,
     payload      text,
+    session_id   text,
+    actor_id     text,
+    source       text,
     PRIMARY KEY ((project_id, time_window), event_id)
   )`;
 

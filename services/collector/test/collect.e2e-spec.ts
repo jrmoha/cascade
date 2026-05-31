@@ -70,7 +70,8 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('POST /collect (integratio
     expect(msg.value.projectId).toBe('game-1');
     expect(msg.value.type).toBe('level_complete');
     expect(msg.value.payload).toEqual({ level: 3 });
-    expect(Number.isNaN(Date.parse(msg.value.timestamp))).toBe(false);
+    expect(Number.isNaN(Date.parse(msg.value.occurredAt))).toBe(false);
+    expect(Number.isNaN(Date.parse(msg.value.receivedAt))).toBe(false);
   });
 
   it('rejects an event missing projectId with 400 and produces nothing', async () => {

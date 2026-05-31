@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { ClientKafka } from '@nestjs/microservices';
-import { RAW_EVENTS_TOPIC, RawEvent } from '@cascade/contracts';
+import { RAW_EVENTS_TOPIC, RawEvent, rawEventSchema } from '@cascade/contracts';
 import { lastValueFrom } from 'rxjs';
 import { CollectEventDto } from './dto/collect-event.dto';
 import { KAFKA_PRODUCER } from './kafka.tokens';
@@ -22,16 +22,27 @@ export class CollectorService implements OnApplicationBootstrap {
    * it to `raw-events`, keyed by projectId so a project's events keep ordering
    * and land on the same partition.
    *
+   * `receivedAt` is stamped here (ingest time); `occurredAt` (event time) is
+   * taken from the client, defaulting to ingest time when absent. The envelope
+   * is validated against the shared `rawEventSchema` before it leaves the
+   * Collector, so nothing invalid reaches Kafka.
+   *
    * @returns the eventId stamped on the published event.
    */
   async collect(dto: CollectEventDto): Promise<string> {
-    const event: RawEvent = {
+    const receivedAt = new Date().toISOString();
+
+    const event: RawEvent = rawEventSchema.parse({
       eventId: randomUUID(),
       projectId: dto.projectId,
       type: dto.type,
-      timestamp: dto.timestamp ?? new Date().toISOString(),
+      occurredAt: dto.occurredAt ?? receivedAt,
+      receivedAt,
       payload: dto.payload ?? {},
-    };
+      sessionId: dto.sessionId,
+      actorId: dto.actorId,
+      source: dto.source,
+    });
 
     await lastValueFrom(
       this.client.emit(RAW_EVENTS_TOPIC, {

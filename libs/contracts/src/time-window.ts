@@ -11,7 +11,9 @@ const HOUR_MS = 60 * 60 * 1000;
 /**
  * Map an ISO-8601 timestamp to its hourly partition bucket in UTC, formatted as
  * 'YYYY-MM-DDTHH'. This is the `time_window` component of the Cassandra
- * partition key `(project_id, time_window)`, which bounds partition size.
+ * partition key `(project_id, time_window)`, which bounds partition size. The
+ * write path buckets by event time (`occurredAt`), so late/out-of-order events
+ * land in the bucket for when they happened, not when they arrived.
  *
  * Falls back to the current hour if the timestamp is missing or unparseable, so
  * a malformed event still lands somewhere rather than being dropped.

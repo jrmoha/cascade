@@ -1,7 +1,7 @@
 # Runbook: Collector
 
 Thin write-path service. Accepts events on `POST /collect` and produces them to the Kafka
-`raw-events` topic. See [contracts/raw-event.md](../contracts/raw-event.md).
+`raw-events` topic. See [contracts/events.md](../contracts/events.md).
 
 ## Configuration
 
