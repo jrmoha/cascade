@@ -20,6 +20,7 @@ ADRs follow the [MADR](https://adr.github.io/madr/) lightweight template:
 | [0003](0003-query-api-phase0-raw-read.md)  | Query API Phase-0 raw read-back from Cassandra (temporary)               | Accepted (temporary) |
 | [0004](0004-canonical-event-contract.md)   | Canonical event contract (Zod single-source envelope; event/ingest time) | Accepted             |
 | [0005](0005-validate-at-collector-edge.md) | Validate at the Collector edge with the shared contract                  | Accepted             |
+| [0006](0006-dead-letter-handling.md)       | Dead-letter handling for failed events (DLQ + bounded retry)             | Accepted             |
 
 ## Creating a new ADR
 
