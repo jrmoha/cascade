@@ -6,7 +6,7 @@ import { Client, types } from 'cassandra-driver';
 import { GenericContainer, type StartedTestContainer, Wait } from 'testcontainers';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { toHourlyWindow } from '@cascade/contracts';
+import { toHourlyBucket } from '@cascade/contracts';
 import { AppModule } from '../src/app.module';
 
 // Integration test against a real Cassandra (no mocking the DB, per CLAUDE.md).
@@ -18,9 +18,9 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('GET /query (integration)'
   let seed: Client;
   let app: INestApplication;
 
-  // Pin "now" so seeded rows and the endpoint's window enumeration agree.
+  // Pin "now" so seeded rows and the endpoint's bucket enumeration agree.
   const now = new Date().toISOString();
-  const window = toHourlyWindow(now);
+  const bucket = toHourlyBucket(now);
 
   beforeAll(async () => {
     container = await new GenericContainer('cassandra:4.1')
@@ -45,23 +45,23 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('GET /query (integration)'
     );
     await seed.execute(`
       CREATE TABLE IF NOT EXISTS cascade.raw_events (
-        project_id text, time_window text, event_id uuid,
-        type text, occurred_at timestamp, received_at timestamp, payload text,
+        project_id text, time_bucket text, occurred_at timestamp, event_id uuid,
+        type text, received_at timestamp, payload text,
         session_id text, actor_id text, source text,
-        PRIMARY KEY ((project_id, time_window), event_id)
-      )`);
+        PRIMARY KEY ((project_id, time_bucket), occurred_at, event_id)
+      ) WITH CLUSTERING ORDER BY (occurred_at DESC, event_id ASC)`);
 
     const insert = `INSERT INTO cascade.raw_events
-      (project_id, time_window, event_id, type, occurred_at, received_at, payload, session_id, actor_id, source)
+      (project_id, time_bucket, occurred_at, event_id, type, received_at, payload, session_id, actor_id, source)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
     await seed.execute(
       insert,
       [
         'game-1',
-        window,
+        bucket,
+        new Date(now),
         types.Uuid.fromString('11111111-1111-4111-8111-111111111111'),
         'level_complete',
-        new Date(now),
         new Date(now),
         JSON.stringify({ level: 3 }),
         'sess-9',

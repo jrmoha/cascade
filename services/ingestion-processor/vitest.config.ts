@@ -13,6 +13,10 @@ export default defineConfig({
     // Spinning up a Cassandra container is slow; give integration tests room.
     testTimeout: 120_000,
     hookTimeout: 240_000,
+    // Integration specs each spin up Cassandra/Kafka containers. Run test files
+    // sequentially so we don't start several heavy containers at once (which
+    // starves them and trips the startup log-wait).
+    fileParallelism: false,
   },
   plugins: [
     // Emit decorator metadata so NestJS DI works under Vitest.

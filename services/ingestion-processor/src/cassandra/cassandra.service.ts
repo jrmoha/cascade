@@ -1,32 +1,17 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Client, types } from 'cassandra-driver';
+import { KEYSPACE, Migrator } from './migrator';
 
-export const KEYSPACE = 'cascade';
-
-const CREATE_KEYSPACE = `
-  CREATE KEYSPACE IF NOT EXISTS ${KEYSPACE}
-  WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}`;
-
-const CREATE_RAW_EVENTS = `
-  CREATE TABLE IF NOT EXISTS ${KEYSPACE}.raw_events (
-    project_id   text,
-    time_window  text,
-    event_id     uuid,
-    type         text,
-    occurred_at  timestamp,
-    received_at  timestamp,
-    payload      text,
-    session_id   text,
-    actor_id     text,
-    source       text,
-    PRIMARY KEY ((project_id, time_window), event_id)
-  )`;
+export { KEYSPACE } from './migrator';
 
 /**
  * Owns the cassandra-driver client. Connects (with retry, since Cassandra is
- * slow to accept connections on cold start) and ensures the keyspace + table
- * exist before the consumer starts handling messages.
+ * slow to accept connections on cold start) and runs schema migrations (KAN-24,
+ * see {@link Migrator}) so the keyspace and tables exist — and are up to date —
+ * before the consumer starts handling messages. The committed `migrations/*.cql`
+ * files are the single source of truth for the schema; this service applies
+ * them, it does not define DDL inline.
  */
 @Injectable()
 export class CassandraService implements OnApplicationBootstrap, OnModuleDestroy {
@@ -46,8 +31,7 @@ export class CassandraService implements OnApplicationBootstrap, OnModuleDestroy
 
   async onApplicationBootstrap(): Promise<void> {
     await this.connectWithRetry();
-    await this.client.execute(CREATE_KEYSPACE);
-    await this.client.execute(CREATE_RAW_EVENTS);
+    await new Migrator(this.client).run();
     this.logger.log(`Cassandra ready (keyspace "${KEYSPACE}", table raw_events)`);
   }
 

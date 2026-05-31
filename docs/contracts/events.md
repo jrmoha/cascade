@@ -38,7 +38,7 @@ The schema is **strict**: unknown keys are rejected.
 
 `occurredAt` (event time) and `receivedAt` (ingest time) are deliberately separate. Late and
 out-of-order events are normal in telemetry — a client may buffer events offline and flush them
-minutes later. Aggregations and the Cassandra `time_window` bucket key off `occurredAt`, so an
+minutes later. Aggregations and the Cassandra `time_bucket` partition key off `occurredAt`, so an
 event lands in the window for **when it happened**, not when it arrived.
 
 ## Input to `POST /collect`
@@ -97,19 +97,26 @@ to `cascade.raw_events`. The envelope maps to columns as:
 | RawEvent field | Column        | Type        | Notes                                                                                |
 | -------------- | ------------- | ----------- | ------------------------------------------------------------------------------------ |
 | `projectId`    | `project_id`  | `text`      | Partition key (part 1).                                                              |
-| _derived_      | `time_window` | `text`      | Partition key (part 2). Hourly UTC bucket `YYYY-MM-DDTHH` derived from `occurredAt`. |
-| `eventId`      | `event_id`    | `uuid`      | Clustering key → idempotent upsert.                                                  |
+| _derived_      | `time_bucket` | `text`      | Partition key (part 2). Hourly UTC bucket `YYYY-MM-DDTHH` derived from `occurredAt`. |
+| `occurredAt`   | `occurred_at` | `timestamp` | Event time. Clustering key (DESC) → newest-first reads.                              |
+| `eventId`      | `event_id`    | `uuid`      | Clustering key (after `occurred_at`) → tie-break + uniqueness → idempotent upsert.   |
 | `type`         | `type`        | `text`      |                                                                                      |
-| `occurredAt`   | `occurred_at` | `timestamp` | Event time.                                                                          |
 | `receivedAt`   | `received_at` | `timestamp` | Ingest time.                                                                         |
 | `payload`      | `payload`     | `text`      | JSON-encoded.                                                                        |
 | `sessionId`    | `session_id`  | `text`      | Nullable.                                                                            |
 | `actorId`      | `actor_id`    | `text`      | Nullable.                                                                            |
 | `source`       | `source`      | `text`      | Nullable.                                                                            |
 
-- **Query served:** `SELECT * FROM cascade.raw_events WHERE project_id = ? AND time_window = ?`.
-- **Idempotency:** the full primary key `((project_id, time_window), event_id)` makes a
-  re-delivered event overwrite an identical row — safe under Kafka at-least-once.
+- **Primary key:** `((project_id, time_bucket), occurred_at, event_id)` with
+  `CLUSTERING ORDER BY (occurred_at DESC, event_id ASC)` and a 30-day TTL. See **ADR-0007** for the
+  partition-key/bucketing/TTL rationale.
+- **Query served:** `SELECT … WHERE project_id = ? AND time_bucket = ?` — newest-first from the
+  clustering order, never `ALLOW FILTERING`.
+- **Idempotency:** the full primary key makes a re-delivered event overwrite an identical row — safe
+  under Kafka at-least-once.
+- **Schema source of truth:** the versioned migrations in
+  `services/ingestion-processor/migrations/`, applied by the `Migrator` (on startup and via
+  `npm run migrate`). Not created ad-hoc.
 
 ## Phase notes
 

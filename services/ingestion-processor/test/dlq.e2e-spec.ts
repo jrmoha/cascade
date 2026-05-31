@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   RAW_EVENTS_DLQ_TOPIC,
   RAW_EVENTS_TOPIC,
-  toHourlyWindow,
+  toHourlyBucket,
   type DeadLetter,
   type RawEvent,
 } from '@cascade/contracts';
@@ -23,7 +23,7 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Ingestion DLQ (integratio
   const INGESTION_BROKER_GROUP = 'cascade-ingestion-processor-server';
   const PROJECT = 'game-dlq';
   const now = new Date().toISOString();
-  const window = toHourlyWindow(now);
+  const bucket = toHourlyBucket(now);
 
   let kafka: StartedKafkaContainer;
   let cassandra: StartedTestContainer;
@@ -129,8 +129,8 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Ingestion DLQ (integratio
     // Both valid events are persisted (proves the poison didn't block the partition)...
     const rows = await waitFor(async () => {
       const rs = await seed.execute(
-        'SELECT event_id FROM cascade.raw_events WHERE project_id = ? AND time_window = ?',
-        [PROJECT, window],
+        'SELECT event_id FROM cascade.raw_events WHERE project_id = ? AND time_bucket = ?',
+        [PROJECT, bucket],
         { prepare: true },
       );
       return rs.rows.length >= 2 ? rs.rows : undefined;
