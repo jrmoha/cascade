@@ -9,7 +9,8 @@
   },
   "workspaces": [
     "services/*",
-    "libs/*"
+    "libs/*",
+    "e2e"
   ],
   "scripts": {
     "lint": "eslint .",
@@ -18,6 +19,7 @@
     "format:check": "prettier --check .",
     "build": "tsc --build",
     "test": "vitest",
+    "smoke": "npm test -w @cascade/e2e",
     "prepare": "husky",
     "postinstall": "patch-package"
   },
