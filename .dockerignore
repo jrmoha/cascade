@@ -1,0 +1,15 @@
+# Keep build context small and reproducible: never ship host artifacts into the
+# image. node_modules and dist are rebuilt inside the builder stage.
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+.git
+.github
+**/.env
+**/.env.*
+!**/.env.example
+**/coverage
+**/.vitest
+docs
+*.md
+.husky

@@ -100,6 +100,105 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
+  # --- Application services -------------------------------------------------
+  # Gated behind the `apps` profile so `make up` / `docker compose up` brings up
+  # only the backing stores (the workflow tests/smoke rely on). Bring up the
+  # full stack with `make stack-up` (or `docker compose --profile apps up`).
+  # Each builds from the repo root (context: ..) so @cascade/contracts resolves.
+  # Peer addresses use container service names (kafka:29092, cassandra) — never
+  # hardcoded in source. Stopping one app container leaves the others running.
+
+  collector:
+    build:
+      context: ..
+      dockerfile: services/collector/Dockerfile
+    container_name: cascade-collector
+    profiles: ['apps']
+    ports:
+      - '3001:3001'
+    environment:
+      NODE_ENV: production
+      PORT: '3001'
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('http').get('http://localhost:3001/health',(r)=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  ingestion-processor:
+    build:
+      context: ..
+      dockerfile: services/ingestion-processor/Dockerfile
+    container_name: cascade-ingestion-processor
+    profiles: ['apps']
+    ports:
+      - '3003:3003'
+    environment:
+      NODE_ENV: production
+      PORT: '3003'
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      CASSANDRA_CONTACT_POINTS: cassandra
+      CASSANDRA_PORT: '9042'
+      CASSANDRA_LOCAL_DC: datacenter1
+    depends_on:
+      kafka:
+        condition: service_healthy
+      cassandra:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('http').get('http://localhost:3003/health',(r)=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  query-api:
+    build:
+      context: ..
+      dockerfile: services/query-api/Dockerfile
+    container_name: cascade-query-api
+    profiles: ['apps']
+    ports:
+      - '3002:3002'
+    environment:
+      NODE_ENV: production
+      PORT: '3002'
+      CASSANDRA_CONTACT_POINTS: cassandra
+      CASSANDRA_PORT: '9042'
+      CASSANDRA_LOCAL_DC: datacenter1
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('http').get('http://localhost:3002/health',(r)=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
 volumes:
   cassandra-data:
   postgres-data:
