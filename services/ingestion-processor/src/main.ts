@@ -3,19 +3,26 @@ import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { AppModule } from './app.module';
+import { APP_CONFIG } from './config/config.module';
+import type { IngestionConfig } from './config/env.schema';
 
+/**
+ * Hybrid app: a thin HTTP server (so the process can expose `/health` and
+ * `/ready` probes for containers/k8s — KAN-27) with the Kafka consumer attached
+ * as a connected microservice. The `@EventPattern(RAW_EVENTS_TOPIC)` handler and
+ * the `cascade-ingestion-processor` consumer group are unchanged; NestJS still
+ * postfixes the broker-side group with `-server`.
+ */
 async function bootstrap(): Promise<void> {
-  const brokers = (process.env.KAFKA_BOOTSTRAP_SERVERS ?? 'localhost:9092')
-    .split(',')
-    .map((b) => b.trim())
-    .filter(Boolean);
+  const app = await NestFactory.create(AppModule);
+  const config = app.get<IngestionConfig>(APP_CONFIG);
 
-  const app = await NestFactory.createMicroservice<MicroserviceOptions>(AppModule, {
+  app.connectMicroservice<MicroserviceOptions>({
     transport: Transport.KAFKA,
     options: {
       client: {
         clientId: 'cascade-ingestion-processor',
-        brokers,
+        brokers: config.KAFKA_BOOTSTRAP_SERVERS,
       },
       consumer: {
         groupId: 'cascade-ingestion-processor',
@@ -23,8 +30,13 @@ async function bootstrap(): Promise<void> {
     },
   });
 
-  await app.listen();
-  Logger.log(`Ingestion-Processor consuming from brokers: ${brokers.join(', ')}`, 'Bootstrap');
+  await app.startAllMicroservices();
+  await app.listen(config.PORT);
+  Logger.log(
+    `Ingestion-Processor: health on http://localhost:${config.PORT}, ` +
+      `consuming from ${config.KAFKA_BOOTSTRAP_SERVERS.join(', ')}`,
+    'Bootstrap',
+  );
 }
 
 void bootstrap();

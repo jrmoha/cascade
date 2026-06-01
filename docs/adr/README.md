@@ -24,6 +24,7 @@ ADRs follow the [MADR](https://adr.github.io/madr/) lightweight template:
 | [0007](0007-cassandra-raw-events-model.md)           | Cassandra `raw_events` query-first model (partition key, TTL, migrations)   | Accepted             |
 | [0008](0008-raw-event-time-range-read.md)            | Bounded raw event-retrieval read (time-range `GET /query`, pagination)      | Accepted             |
 | [0009](0009-service-boundaries-and-communication.md) | Service boundaries & communication strategy (topic + sync-call inventories) | Accepted             |
+| [0010](0010-independently-deployable-services.md)    | Independently deployable services (containers, Zod config, health probes)   | Accepted             |
 
 ## Creating a new ADR
 

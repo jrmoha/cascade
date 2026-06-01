@@ -19,10 +19,12 @@ Event-driven. Collector → **Kafka** → two independent consumers: Ingestion-P
 
 ## Stack & conventions
 
-- NestJS + TypeScript. Node 20+. (Pin versions in package.json.)
+- NestJS + TypeScript. Node 22+ (LTS). (Pin versions in package.json.)
 - Lint/format: ESLint + Prettier. Commits: Conventional Commits (Commitlint + Husky).
 - Tests: Vitest (unit), Testcontainers (integration against real Cassandra/Kafka/Postgres). Don't mock the database in integration tests. NestJS services need `unplugin-swc` in their `vitest.config.ts` so decorator metadata is emitted for DI (see `services/collector`). Gate Docker-dependent integration tests behind `SKIP_INTEGRATION=1`.
-- Monorepo: `services/`, `libs/` (shared contracts), `infra/` (Terraform + docker-compose), `docs/`.
+- Monorepo: `services/`, `libs/` (shared contracts), `infra/` (Terraform + docker-compose), `docs/`. Each service is **independently deployable**: its own multi-stage `Dockerfile` (build context = repo root so `@cascade/contracts` resolves), added to `infra/docker-compose.yml` under the `apps` profile (`make up` = infra only; `make stack-up` = full stack). See ADR-0010.
+- **Config is env-only, validated with Zod at boot — no inline defaults.** Each service has a per-service Zod env schema (`src/config/env.schema.ts`) parsed once at startup into a frozen, typed `APP_CONFIG`; a missing/invalid var fails fast (12-factor). Infra/peer addresses (`KAFKA_BOOTSTRAP_SERVERS`, `CASSANDRA_*`) are **required** and come from config via container service names — never hardcoded, never `?? 'localhost'`. Only a service's own HTTP `PORT` keeps a default. Document every var in `services/<svc>/.env.example`.
+- **Every service exposes `GET /health` (liveness) and `GET /ready` (readiness)** via `@nestjs/terminus` — readiness pings its deps (Kafka and/or Cassandra) and returns `503` when one is down. The Ingestion-Processor is a **hybrid app** (`NestFactory.create` + `connectMicroservice` + `startAllMicroservices`): a Kafka consumer plus a small HTTP server for the probes. See ADR-0010.
 - **Shared contracts use Zod as the single source of truth.** Define the schema in `@cascade/contracts` and derive the TS type via `z.infer` (never hand-write a parallel `interface` + validator — they drift). The canonical event envelope is `rawEventSchema`/`RawEvent` (see ADR-0004, `docs/contracts/events.md`). It separates `occurredAt` (event time, from the client) from `receivedAt` (ingest time, stamped by the Collector); Cassandra `time_window` buckets by `occurredAt`. The Collector validates before producing and the Ingestion-Processor validates on consume. HTTP-edge validation derives its schema from the contract (`collectEventSchema` = `rawEventSchema.omit(...).strip()`) rather than re-implementing it; invalid events get a structured `400` and never reach Kafka (ADR-0005).
 
 ## Local env gotchas

@@ -1,6 +1,13 @@
-import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnApplicationBootstrap,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { Client, types } from 'cassandra-driver';
+import { APP_CONFIG } from '../config/config.module';
+import type { IngestionConfig } from '../config/env.schema';
 import { KEYSPACE, Migrator } from './migrator';
 
 export { KEYSPACE } from './migrator';
@@ -18,15 +25,12 @@ export class CassandraService implements OnApplicationBootstrap, OnModuleDestroy
   private readonly logger = new Logger(CassandraService.name);
   private readonly client: Client;
 
-  constructor(config: ConfigService) {
-    const contactPoints = (config.get<string>('CASSANDRA_CONTACT_POINTS') ?? 'localhost')
-      .split(',')
-      .map((p) => p.trim())
-      .filter(Boolean);
-    const port = Number(config.get<string>('CASSANDRA_PORT') ?? 9042);
-    const localDataCenter = config.get<string>('CASSANDRA_LOCAL_DC') ?? 'datacenter1';
-
-    this.client = new Client({ contactPoints, protocolOptions: { port }, localDataCenter });
+  constructor(@Inject(APP_CONFIG) config: IngestionConfig) {
+    this.client = new Client({
+      contactPoints: config.CASSANDRA_CONTACT_POINTS,
+      protocolOptions: { port: config.CASSANDRA_PORT },
+      localDataCenter: config.CASSANDRA_LOCAL_DC,
+    });
   }
 
   async onApplicationBootstrap(): Promise<void> {

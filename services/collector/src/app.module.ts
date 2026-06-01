@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { AppConfigModule } from './config/config.module';
 import { CollectorModule } from './collector/collector.module';
+import { HealthModule } from './health/health.module';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }), CollectorModule],
+  imports: [AppConfigModule, CollectorModule, HealthModule],
 })
 export class AppModule {}

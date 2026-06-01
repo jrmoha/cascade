@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { Partitioners } from 'kafkajs';
 import { CassandraModule } from '../cassandra/cassandra.module';
+import { APP_CONFIG } from '../config/config.module';
+import type { IngestionConfig } from '../config/env.schema';
 import { ProcessorController } from './processor.controller';
 import { RawEventRepository } from './raw-event.repository';
 import { DeadLetterPublisher } from './dead-letter.publisher';
@@ -14,17 +15,15 @@ import { DLQ_PRODUCER } from './kafka.tokens';
     ClientsModule.registerAsync([
       {
         name: DLQ_PRODUCER,
-        inject: [ConfigService],
-        useFactory: (config: ConfigService) => {
-          const brokers = (config.get<string>('KAFKA_BOOTSTRAP_SERVERS') ?? 'localhost:9092')
-            .split(',')
-            .map((b) => b.trim())
-            .filter(Boolean);
-
+        inject: [APP_CONFIG],
+        useFactory: (config: IngestionConfig) => {
           return {
             transport: Transport.KAFKA,
             options: {
-              client: { clientId: 'cascade-ingestion-processor-dlq', brokers },
+              client: {
+                clientId: 'cascade-ingestion-processor-dlq',
+                brokers: config.KAFKA_BOOTSTRAP_SERVERS,
+              },
               // Match the Collector's partitioner so keys hash consistently (ADR-0002).
               producer: { createPartitioner: Partitioners.DefaultPartitioner },
               producerOnlyMode: true,
