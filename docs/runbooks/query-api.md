@@ -3,47 +3,64 @@
 Read-path HTTP service. A NestJS app that serves `GET /query`, returning stored
 events for a project.
 
-> **Phase 0 shortcut.** This endpoint reads **raw events directly from
-> Cassandra** to close the ingest→store→read loop (KAN-19). That deliberately
-> deviates from the target design, where the Query API reads only pre-aggregated
-> read models and never touches Cassandra. It is temporary and removed in Phase 1.
-> See [ADR-0003](../adr/0003-query-api-phase0-raw-read.md).
+> **Bounded raw retrieval (not analytics).** This endpoint reads **raw events
+> directly from Cassandra** for replay/audit/debugging. It is partition-key-
+> bounded — never a cross-partition scan, never `ALLOW FILTERING`. Analytics
+> (counters/funnels/leaderboards) are served separately from Aggregator read
+> models and never touch raw Cassandra. See
+> [ADR-0008](../adr/0008-raw-event-time-range-read.md) (supersedes the Phase-0
+> ADR-0003) and `docs/contracts/events.md` → "Reading events back".
 
 ## API
 
-`GET /query`
+`GET /query` — read a project's events within an inclusive event-time window
+`[from, to]`, newest-first, cursor-paged (KAN-25).
 
-| Query param | Required | Default | Notes                                                          |
-| ----------- | -------- | ------- | -------------------------------------------------------------- |
-| `projectId` | yes      | —       | Tenant/project to read events for.                             |
-| `hours`     | no       | `1`     | Hourly-bucket lookback (1 = current hour only). Integer 1–168. |
+| Query param | Required | Default | Notes                                                              |
+| ----------- | -------- | ------- | ------------------------------------------------------------------ |
+| `projectId` | yes      | —       | Tenant/project to read events for.                                 |
+| `from`      | yes      | —       | ISO-8601. Inclusive lower bound on `occurredAt` (event time).      |
+| `to`        | yes      | —       | ISO-8601. Inclusive upper bound on `occurredAt`. Must be ≥ `from`. |
+| `limit`     | no       | `100`   | Page size. Max `1000`.                                             |
+| `cursor`    | no       | —       | Opaque continuation token from a prior response's `nextCursor`.    |
 
-Reads are **partition-key-bounded**: one prepared single-partition
-`SELECT ... WHERE project_id = ? AND time_bucket = ?` per hourly bucket,
-concatenated and returned newest-first (the table's `CLUSTERING ORDER BY
-(occurred_at DESC, …)` provides the order — see ADR-0007). No `ALLOW FILTERING`.
+Reads are **partition-key-bounded**: the window is mapped to the hourly
+`time_bucket` partitions it covers, and each is read with one prepared,
+`occurred_at`-bounded single-partition `SELECT ... WHERE project_id = ? AND
+time_bucket = ? AND occurred_at >= ? AND occurred_at <= ?`. Results are
+newest-first (the table's `CLUSTERING ORDER BY (occurred_at DESC, …)` provides
+the order — see ADR-0007). No `ALLOW FILTERING`. A window may span at most
+**168** hourly buckets (7 days); wider is rejected with `400`.
 
 Response:
 
 ```json
 {
   "projectId": "game-1",
-  "hours": 1,
+  "from": "2026-05-30T15:00:00.000Z",
+  "to": "2026-05-30T15:59:59.999Z",
   "count": 1,
   "events": [
     {
       "eventId": "11111111-1111-4111-8111-111111111111",
       "projectId": "game-1",
       "type": "level_complete",
-      "timestamp": "2026-05-30T15:10:00.000Z",
+      "occurredAt": "2026-05-30T15:10:00.000Z",
+      "receivedAt": "2026-05-30T15:10:00.500Z",
       "payload": { "level": 3 }
     }
   ]
 }
 ```
 
-A missing `projectId` returns `400`. An unknown `projectId` returns `200` with
-`count: 0`.
+**Pagination:** when more rows may remain, the response includes a `nextCursor`;
+pass it back as `cursor` to fetch the next page. **Stop when `nextCursor` is
+absent** (a present cursor does not guarantee further rows). Treat the cursor as
+opaque.
+
+`400` on: missing/non-ISO `projectId`/`from`/`to`, `from` after `to`, a window
+wider than 168 buckets, or a malformed/mismatched `cursor`. An unknown
+`projectId` returns `200` with `count: 0`.
 
 ## Configuration
 
@@ -78,12 +95,15 @@ npm run start:dev -w @cascade/query-api
 curl -s -X POST localhost:3001/collect -H 'content-type: application/json' \
   -d '{"projectId":"kan19-demo","type":"boss_defeated","payload":{"boss":"dragon"}}'
 
-# 3. read it back through the Query API (no cqlsh, no partition key needed)
-curl -s 'localhost:3002/query?projectId=kan19-demo' | jq
+# 3. read it back through the Query API (no cqlsh, no partition key needed).
+#    Window the last hour up to now (covers the current + previous bucket).
+FROM=$(date -u -v-1H +%Y-%m-%dT%H:%M:%SZ)   # GNU date: date -u -d '1 hour ago' +...
+TO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+curl -s "localhost:3002/query?projectId=kan19-demo&from=$FROM&to=$TO" | jq
 ```
 
-The posted event comes back in `events`. If the request happens to straddle an
-hour boundary, widen the lookback: `?projectId=kan19-demo&hours=2`.
+The posted event comes back in `events`. For a large window, page with
+`&limit=100` and follow `nextCursor` until it is absent.
 
 ## Tests
 

@@ -119,10 +119,13 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Walking-skeleton smoke (e
     expect(eventId).toBeTruthy();
 
     // Event out — poll the read path until it has flowed all the way through.
-    // hours=2 spans the current + previous hourly bucket (robust across rollover).
+    // Query a window from an hour before to just after now: spans the current +
+    // previous hourly bucket (robust across rollover) and brackets occurredAt.
+    const from = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const to = new Date(Date.now() + 60 * 1000).toISOString();
     const event = await waitFor(async () => {
       const res = await request(queryApi.getHttpServer() as Server)
-        .get(`/query?projectId=${sent.projectId}&hours=2`)
+        .get(`/query?projectId=${sent.projectId}&from=${from}&to=${to}`)
         .expect(200);
       return (res.body.events as RawEvent[]).find((e) => e.eventId === eventId);
     });

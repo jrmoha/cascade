@@ -110,13 +110,67 @@ to `cascade.raw_events`. The envelope maps to columns as:
 - **Primary key:** `((project_id, time_bucket), occurred_at, event_id)` with
   `CLUSTERING ORDER BY (occurred_at DESC, event_id ASC)` and a 30-day TTL. See **ADR-0007** for the
   partition-key/bucketing/TTL rationale.
-- **Query served:** `SELECT … WHERE project_id = ? AND time_bucket = ?` — newest-first from the
-  clustering order, never `ALLOW FILTERING`.
+- **Query served:** `SELECT … WHERE project_id = ? AND time_bucket = ? AND occurred_at >= ? AND
+occurred_at <= ?` — a single-partition slice, newest-first from the clustering order, never
+  `ALLOW FILTERING`. The Query API reads one such partition per bucket in the window (see below).
 - **Idempotency:** the full primary key makes a re-delivered event overwrite an identical row — safe
   under Kafka at-least-once.
 - **Schema source of truth:** the versioned migrations in
   `services/ingestion-processor/migrations/`, applied by the `Migrator` (on startup and via
   `npm run migrate`). Not created ad-hoc.
+
+## Reading events back — `GET /query` (Query API)
+
+A bounded, time-range read of raw events for a project (KAN-25). This serves **event retrieval**
+(replay / audit / debugging), **not** aggregation — counters, funnels, retention and leaderboards
+are served separately from the Aggregator's read models and never touch raw Cassandra. See
+**ADR-0008** (which supersedes the Phase-0 ADR-0003 shortcut).
+
+```
+GET /query?projectId=&from=&to=&limit=&cursor=
+```
+
+| Param       | Required | Notes                                                               |
+| ----------- | -------- | ------------------------------------------------------------------- |
+| `projectId` | yes      | Tenant id (partition key part 1).                                   |
+| `from`      | yes      | ISO-8601. Inclusive lower bound on `occurredAt` (event time).       |
+| `to`        | yes      | ISO-8601. Inclusive upper bound on `occurredAt`. Must be `>= from`. |
+| `limit`     | no       | Page size. Default **100**, max **1000**.                           |
+| `cursor`    | no       | Opaque continuation token from a previous response's `nextCursor`.  |
+
+**Response:**
+
+```jsonc
+{
+  "projectId": "game-1",
+  "from": "2026-05-30T14:00:00.000Z",
+  "to": "2026-05-30T15:59:59.999Z",
+  "count": 2, // events in THIS page
+  "events": [
+    /* RawEvent[], newest occurredAt first */
+  ],
+  "nextCursor": "eyJiI…", // present only when more pages may remain
+}
+```
+
+**Ordering.** Events come back newest-first by `occurredAt`. There is no app-side sort: the table's
+`CLUSTERING ORDER BY (occurred_at DESC, …)` returns each partition newest-first, and the window's
+buckets are walked newest-first, so concatenation is already globally ordered.
+
+**Bounded, never a scan.** The window `[from, to]` is mapped to the hourly `time_bucket` partitions
+it covers (`hourlyBucketRange` in `@cascade/contracts`), and each is read with one prepared,
+`occurred_at`-bounded single-partition `SELECT`. The read is **always partition-key-bounded** — no
+cross-partition scan, no `ALLOW FILTERING`. A window may span at most **`MAX_QUERY_BUCKETS` = 168**
+hourly buckets (7 days); a wider window is rejected with `400`.
+
+**Pagination.** Paging uses Cassandra's native driver paging-state, carried between calls in an
+opaque base64url cursor that also pins the bucket it belongs to (paging-state is per-partition).
+Treat the cursor as opaque. **Stop when `nextCursor` is absent** — that means the window is fully
+read. A _present_ `nextCursor` does not guarantee more rows (the next page may come back empty); it
+is the only safe stop condition. Page through by passing the returned `nextCursor` back as `cursor`.
+
+**Errors (`400`):** missing/!ISO `projectId`/`from`/`to`; `from` after `to`; a window wider than
+`MAX_QUERY_BUCKETS`; or a malformed/mismatched `cursor`.
 
 ## Phase notes
 

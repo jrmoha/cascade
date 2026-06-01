@@ -1,6 +1,13 @@
 # 0003 — Query API Phase-0 raw read-back from Cassandra
 
-**Status:** Accepted (temporary — to be superseded in Phase 1)
+**Status:** Superseded by [0008](0008-raw-event-time-range-read.md)
+
+> **Superseded (KAN-25).** The Phase-0 raw read-back is no longer deleted in Phase 1; it is
+> re-scoped and hardened into a bounded, supported time-range retrieval API
+> (`GET /query?projectId=&from=&to=`, paginated). The architectural line moves from "Query API
+> never reads Cassandra" to "Query API never **aggregates** over raw Cassandra" — analytics still
+> come exclusively from Aggregator read models. The `hours=` parameter described below is replaced
+> by `from`/`to`. See **ADR-0008** for the current decision.
 
 ## Context
 

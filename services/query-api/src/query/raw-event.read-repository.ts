@@ -1,13 +1,66 @@
 import { Injectable } from '@nestjs/common';
 import { types } from 'cassandra-driver';
-import { RawEvent, recentHourlyBuckets } from '@cascade/contracts';
+import { hourlyBucketRange, MAX_QUERY_BUCKETS, RawEvent } from '@cascade/contracts';
 import { CassandraService, KEYSPACE } from '../cassandra/cassandra.service';
 
-const SELECT_RAW_EVENTS = `
+const SELECT_WINDOW = `
   SELECT project_id, time_bucket, event_id, type, occurred_at, received_at,
          payload, session_id, actor_id, source
   FROM ${KEYSPACE}.raw_events
-  WHERE project_id = ? AND time_bucket = ?`;
+  WHERE project_id = ? AND time_bucket = ? AND occurred_at >= ? AND occurred_at <= ?`;
+
+/** Inputs for a single time-range page read. */
+export interface ReadWindow {
+  projectId: string;
+  /** Inclusive lower bound on `occurredAt` (ISO-8601). */
+  from: string;
+  /** Inclusive upper bound on `occurredAt` (ISO-8601). */
+  to: string;
+  /** Page size — max events to return. */
+  limit: number;
+  /** Opaque cursor from a previous page's `nextCursor`, if continuing. */
+  cursor?: string;
+}
+
+/** A page of events plus the cursor to fetch the next one (absent at window end). */
+export interface EventPage {
+  events: RawEvent[];
+  nextCursor?: string;
+}
+
+/**
+ * Decoded pagination cursor. Pins the read to a specific partition (`b`, the
+ * hourly `time_bucket`) and, within it, Cassandra's native driver paging-state
+ * (`p`). When `p` is absent the cursor means "start at the beginning of bucket
+ * `b`" — used when a page boundary lands exactly on a bucket boundary.
+ */
+interface PageCursor {
+  b: string;
+  p?: string;
+}
+
+/** Thrown when a client supplies a cursor that is malformed or does not belong
+ * to the requested `[from, to]` window. The controller maps this to a 400. */
+export class InvalidCursorError extends Error {
+  constructor() {
+    super('Invalid or mismatched pagination cursor');
+    this.name = 'InvalidCursorError';
+  }
+}
+
+function encodeCursor(cursor: PageCursor): string {
+  return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url');
+}
+
+function decodeCursor(raw: string): PageCursor {
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as unknown;
+    if (parsed && typeof (parsed as PageCursor).b === 'string') return parsed as PageCursor;
+  } catch {
+    /* fall through */
+  }
+  throw new InvalidCursorError();
+}
 
 /**
  * Maps a Cassandra row back to the wire `RawEvent` shape produced by the
@@ -40,32 +93,82 @@ export class RawEventReadRepository {
   constructor(private readonly cassandra: CassandraService) {}
 
   /**
-   * Read events for a project across the most recent `hours` hourly buckets.
+   * Read a project's events whose `occurredAt` falls in the inclusive window
+   * `[from, to]`, newest-first, one page at a time (KAN-25, ADR-0008).
    *
-   * Each bucket is a full partition `(project_id, time_bucket)`, so we issue one
-   * prepared single-partition SELECT per bucket and concatenate the results.
-   * This is deliberately partition-key-bounded: we never `ALLOW FILTERING`
-   * across partitions.
+   * The window is mapped to the hourly `(project_id, time_bucket)` partitions it
+   * covers ({@link hourlyBucketRange}, newest-first) and read one partition at a
+   * time with a prepared, `occurred_at`-bounded single-partition SELECT — never
+   * a cross-partition scan and never `ALLOW FILTERING`. The table's
+   * `CLUSTERING ORDER BY (occurred_at DESC, …)` returns each partition
+   * newest-first, and buckets are walked newest-first, so concatenating them is
+   * already globally ordered without any app-side sort.
    *
-   * Ordering is newest-first by event time with no app-side sort: the table's
-   * `CLUSTERING ORDER BY (occurred_at DESC, …)` returns each bucket's rows
-   * newest-first, and `recentHourlyBuckets` yields buckets newest-first, so the
-   * concatenation is already globally ordered (KAN-24, ADR-0007).
+   * Pagination uses Cassandra's native driver paging-state, carried across calls
+   * in an opaque cursor that also pins the current bucket (paging-state is
+   * per-partition, so the cursor records which partition it belongs to). An
+   * absent `nextCursor` means the window has been fully read; a present one does
+   * not guarantee further rows (the next page may come back empty) — callers
+   * stop when `nextCursor` is absent.
    *
-   * NOTE (Phase 0): reading raw Cassandra from the Query API is a temporary
-   * walking-skeleton shortcut to close the ingest→store→read loop (KAN-19). The
-   * target design serves pre-aggregated read models built by the Aggregator;
-   * this raw read-back is removed in Phase 1. See ADR-0003.
+   * @throws Error if the window spans more than `MAX_QUERY_BUCKETS` partitions
+   * (callers should pre-validate); {@link InvalidCursorError} on a bad cursor.
    */
-  async readRecent(projectId: string, hours: number): Promise<RawEvent[]> {
-    const buckets = recentHourlyBuckets(new Date(), hours);
+  async readWindow({ projectId, from, to, limit, cursor }: ReadWindow): Promise<EventPage> {
+    const buckets = hourlyBucketRange(from, to);
+    if (buckets.length > MAX_QUERY_BUCKETS) {
+      throw new Error(
+        `Time window spans ${buckets.length} buckets, exceeding the limit of ${MAX_QUERY_BUCKETS}`,
+      );
+    }
 
-    const resultSets = await Promise.all(
-      buckets.map((timeBucket) =>
-        this.cassandra.execute(SELECT_RAW_EVENTS, [projectId, timeBucket], { prepare: true }),
-      ),
-    );
+    const fromDate = new Date(from);
+    const toDate = new Date(to);
 
-    return resultSets.flatMap((rs) => rs.rows.map(toRawEvent));
+    const decoded = cursor ? decodeCursor(cursor) : undefined;
+    let startIndex = 0;
+    if (decoded) {
+      startIndex = buckets.indexOf(decoded.b);
+      // A cursor that points outside the requested window is a client mismatch.
+      if (startIndex === -1) throw new InvalidCursorError();
+    }
+
+    const events: RawEvent[] = [];
+
+    for (let i = startIndex; i < buckets.length; i++) {
+      const bucket = buckets[i];
+      // Driver paging-state only applies when resuming the cursor's own bucket.
+      const pageState = i === startIndex ? decoded?.p : undefined;
+      const remaining = limit - events.length;
+
+      const rs = await this.cassandra.execute(
+        SELECT_WINDOW,
+        [projectId, bucket, fromDate, toDate],
+        {
+          prepare: true,
+          fetchSize: remaining,
+          pageState,
+        },
+      );
+
+      for (const row of rs.rows) events.push(toRawEvent(row));
+
+      if (events.length >= limit) {
+        // Page is full — decide where the next page resumes.
+        if (rs.pageState) {
+          // More rows remain in this same partition.
+          return { events, nextCursor: encodeCursor({ b: bucket, p: rs.pageState }) };
+        }
+        if (i + 1 < buckets.length) {
+          // Partition exhausted; resume at the start of the next bucket.
+          return { events, nextCursor: encodeCursor({ b: buckets[i + 1] }) };
+        }
+        // Exhausted the last partition exactly — nothing more to read.
+        return { events };
+      }
+      // events.length < limit → this partition is exhausted; fall through.
+    }
+
+    return { events };
   }
 }

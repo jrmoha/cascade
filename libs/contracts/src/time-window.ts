@@ -25,22 +25,41 @@ export function toHourlyBucket(iso: string | undefined): string {
 }
 
 /**
- * Enumerate the hourly buckets to scan for a read-back, most-recent first:
- * the bucket containing `now` plus the preceding `hours - 1` buckets.
- *
- * `hours` is clamped to at least 1 (so the current bucket is always included).
- * The Query API issues one single-partition SELECT per returned bucket and
- * merges the results — this stays partition-key-bounded and avoids a
- * cross-partition `ALLOW FILTERING` scan.
+ * The maximum number of hourly buckets a single time-range read may span
+ * (168 = 7 days). Each bucket is one `(project_id, time_bucket)` partition the
+ * Query API reads with a prepared single-partition SELECT, so this caps the
+ * fan-out of one request to a bounded set of partitions — never an unbounded
+ * cross-partition scan. The Query API rejects windows wider than this. See
+ * ADR-0008.
  */
-export function recentHourlyBuckets(now: Date | string | undefined, hours: number): string[] {
-  const base = now ? new Date(now) : new Date();
-  const anchor = Number.isNaN(base.getTime()) ? new Date() : base;
-  const count = Number.isFinite(hours) ? Math.max(1, Math.floor(hours)) : 1;
+export const MAX_QUERY_BUCKETS = 168;
+
+/**
+ * Enumerate the hourly buckets covering the inclusive window `[from, to]`,
+ * most-recent first (so it aligns with the table's `occurred_at DESC` clustering
+ * order — newest events first). `from`/`to` are floored to their UTC hour, and
+ * both endpoint hours are included.
+ *
+ * A window can straddle several `(project_id, time_bucket)` partitions; the
+ * Query API reads each returned bucket with one prepared single-partition SELECT
+ * and merges the results, staying partition-key-bounded and avoiding a
+ * cross-partition `ALLOW FILTERING` scan (KAN-25, ADR-0008). Callers should
+ * bound the span against {@link MAX_QUERY_BUCKETS}.
+ *
+ * Returns an empty array if `from` is after `to` or either date is unparseable.
+ */
+export function hourlyBucketRange(from: Date | string, to: Date | string): string[] {
+  const fromDate = new Date(from);
+  const toDate = new Date(to);
+  if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) return [];
+
+  const floorToHour = (ms: number): number => Math.floor(ms / HOUR_MS) * HOUR_MS;
+  const newest = floorToHour(toDate.getTime());
+  const oldest = floorToHour(fromDate.getTime());
 
   const buckets: string[] = [];
-  for (let i = 0; i < count; i++) {
-    buckets.push(new Date(anchor.getTime() - i * HOUR_MS).toISOString().slice(0, 13));
+  for (let ms = newest; ms >= oldest; ms -= HOUR_MS) {
+    buckets.push(new Date(ms).toISOString().slice(0, 13));
   }
   return buckets;
 }

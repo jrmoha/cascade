@@ -38,7 +38,7 @@ export class CassandraService implements OnApplicationBootstrap, OnModuleDestroy
   execute(
     query: string,
     params?: unknown[],
-    options?: { prepare?: boolean },
+    options?: { prepare?: boolean; fetchSize?: number; pageState?: string },
   ): Promise<types.ResultSet> {
     return this.client.execute(query, params, options);
   }
