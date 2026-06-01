@@ -32,3 +32,6 @@ coverage/
 
 # TypeScript
 *.tsbuildinfo
+
+# Local-only Claude Code skills (e.g. Kavro)
+.claude/skills/
