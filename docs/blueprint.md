@@ -79,8 +79,8 @@ New sync calls require an explicit architectural reason. Default is async via Ka
 
 ```
 services/
-  collector/
-  ingestion-processor/
+  collector/          each service: own Dockerfile, .env.example,
+  ingestion-processor/   src/config (Zod-validated env), src/health (probes)
   aggregator/
   query-api/
   project-schema/
@@ -104,13 +104,20 @@ docs/
 
 ## 6. Local development
 
-All infrastructure dependencies (Kafka, Cassandra, PostgreSQL, Redis) run via Docker Compose. See `infra/docker-compose.yml` (to be added in KAN-14).
+All infrastructure dependencies (Kafka, Cassandra, PostgreSQL, Redis) run via Docker Compose. See `infra/docker-compose.yml`.
 
 ```bash
-docker compose -f infra/docker-compose.yml up -d
+make up          # infra only (backing stores)
 npm install
-# start individual services from their package directory
+# start individual services from their package directory, e.g.
+npm run start:dev -w @cascade/collector
 ```
+
+Each service is independently deployable — its own multi-stage `Dockerfile`,
+configured solely via env vars (Zod-validated at boot, no inline defaults), and
+exposing `GET /health` (liveness) + `GET /ready` (readiness). The three app
+services are wired into the same compose file behind the `apps` profile; run the
+full stack with `make stack-up`. See [adr/0010-independently-deployable-services.md](adr/0010-independently-deployable-services.md).
 
 ---
 

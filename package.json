@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Real-time event analytics platform",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "workspaces": [
     "services/*",

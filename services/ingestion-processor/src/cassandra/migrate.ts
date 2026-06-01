@@ -1,22 +1,24 @@
 import 'reflect-metadata';
 import { Logger } from '@nestjs/common';
 import { Client } from 'cassandra-driver';
+import { cassandraEnvSchema } from '../config/env.schema';
 import { Migrator } from './migrator';
 
 /**
  * Standalone migration entrypoint: `npm run migrate -w @cascade/ingestion-processor`.
  * Applies the committed `migrations/*.cql` against the configured Cassandra.
  * Idempotent — safe to run repeatedly (already-applied migrations are skipped).
+ * Cassandra connection vars are required and Zod-validated (no defaults), the
+ * same contract the service uses on boot.
  */
 async function main(): Promise<void> {
-  const contactPoints = (process.env.CASSANDRA_CONTACT_POINTS ?? 'localhost')
-    .split(',')
-    .map((p) => p.trim())
-    .filter(Boolean);
-  const port = Number(process.env.CASSANDRA_PORT ?? 9042);
-  const localDataCenter = process.env.CASSANDRA_LOCAL_DC ?? 'datacenter1';
+  const config = cassandraEnvSchema.parse(process.env);
 
-  const client = new Client({ contactPoints, protocolOptions: { port }, localDataCenter });
+  const client = new Client({
+    contactPoints: config.CASSANDRA_CONTACT_POINTS,
+    protocolOptions: { port: config.CASSANDRA_PORT },
+    localDataCenter: config.CASSANDRA_LOCAL_DC,
+  });
   try {
     await client.connect();
     await new Migrator(client).run();

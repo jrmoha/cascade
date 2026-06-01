@@ -2,6 +2,8 @@ import 'reflect-metadata';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { APP_CONFIG } from './config/config.module';
+import type { QueryApiConfig } from './config/env.schema';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
@@ -14,9 +16,9 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
-  const port = Number(process.env.PORT ?? 3002);
-  await app.listen(port);
-  Logger.log(`Query API listening on http://localhost:${port}`, 'Bootstrap');
+  const config = app.get<QueryApiConfig>(APP_CONFIG);
+  await app.listen(config.PORT);
+  Logger.log(`Query API listening on http://localhost:${config.PORT}`, 'Bootstrap');
 }
 
 void bootstrap();
