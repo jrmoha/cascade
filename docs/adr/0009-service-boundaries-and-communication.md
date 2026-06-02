@@ -15,9 +15,10 @@ This ADR records those boundaries. It does **not** re-argue CQRS, Kafka, or the 
 — see ADR-0001 for that rationale. It is a decision record, not a design doc; the
 [blueprint](../blueprint.md) and [charter](../00-charter.md) hold the detail.
 
-Five services are in scope. Three exist in code today (**Collector**, **Ingestion-Processor**,
-**Query API**); **Aggregator** and **Project/Schema** are _planned_ and marked as such below. The
-boundaries are stated now so the planned services drop into an already-agreed topology.
+Five services are in scope. Four exist in code today (**Collector**, **Ingestion-Processor**,
+**Query API**, and **Project/Schema** as of KAN-28 — see
+[ADR-0011](0011-project-schema-service.md)); the **Aggregator** is _planned_ and marked as such
+below. The boundaries are stated now so the planned services drop into an already-agreed topology.
 
 ## Decision
 
@@ -26,13 +27,13 @@ boundaries are stated now so the planned services drop into an already-agreed to
 Each service has **exactly one** primary responsibility and a set of stores it must not touch. A
 service is the owner — and the only writer — of its store.
 
-| Service                        | Single responsibility                                                           | Must not own / touch                 |
-| ------------------------------ | ------------------------------------------------------------------------------- | ------------------------------------ |
-| **Collector**                  | Validate events at the HTTP edge and produce them to Kafka                      | Any database                         |
-| **Ingestion-Processor**        | Consume `raw-events` and persist them to Cassandra `raw_events` (append-only)   | Redis, PostgreSQL                    |
-| **Aggregator** _(planned)_     | Consume `raw-events` and derive read models (counters/funnels/retention/boards) | Cassandra, the write path            |
-| **Query API**                  | Serve queries from read models (Redis/PostgreSQL); never aggregates over raw    | Kafka; raw Cassandra for aggregation |
-| **Project/Schema** _(planned)_ | Own project metadata, schemas, and API keys in PostgreSQL                       | Kafka, Cassandra, Redis              |
+| Service                    | Single responsibility                                                           | Must not own / touch                 |
+| -------------------------- | ------------------------------------------------------------------------------- | ------------------------------------ |
+| **Collector**              | Validate events at the HTTP edge and produce them to Kafka                      | Any database                         |
+| **Ingestion-Processor**    | Consume `raw-events` and persist them to Cassandra `raw_events` (append-only)   | Redis, PostgreSQL                    |
+| **Aggregator** _(planned)_ | Consume `raw-events` and derive read models (counters/funnels/retention/boards) | Cassandra, the write path            |
+| **Query API**              | Serve queries from read models (Redis/PostgreSQL); never aggregates over raw    | Kafka; raw Cassandra for aggregation |
+| **Project/Schema**         | Own project metadata, schemas, and API keys in PostgreSQL                       | Kafka, Cassandra, Redis              |
 
 Note on the Query API: per [ADR-0008](0008-raw-event-time-range-read.md) it may perform a **bounded,
 partition-key-bounded raw _retrieval_** (`GET /query?projectId=&from=&to=`) for replay/audit, but it
@@ -71,14 +72,16 @@ group, so adding the Aggregator never disturbs the Ingestion-Processor.
 
 ### 4. Sync-call inventory
 
-| Caller → Callee            | Purpose                                   | Status              |
-| -------------------------- | ----------------------------------------- | ------------------- |
-| Collector → Project/Schema | Validate API key / event schema at ingest | Planned (not built) |
+| Caller → Callee            | Purpose                                   | Status                                  |
+| -------------------------- | ----------------------------------------- | --------------------------------------- |
+| Collector → Project/Schema | Validate API key / event schema at ingest | Callee built (KAN-28); caller is KAN-30 |
 
-As of Phase 0 there are **no** synchronous service-to-service calls. The Collector validates events
-structurally against the shared contract in-process ([ADR-0005](0005-validate-at-collector-edge.md));
-the only foreseen sync dependency is the planned Project/Schema lookup above, which qualifies because
-the Collector cannot decide accept/reject without an authoritative answer.
+There are still **no** live synchronous service-to-service calls. The Collector validates events
+structurally against the shared contract in-process ([ADR-0005](0005-validate-at-collector-edge.md)).
+The Project/Schema **callee** now exists (KAN-28 / [ADR-0011](0011-project-schema-service.md)) and
+exposes the `POST /api-keys/verify` and schema-fetch endpoints; the Collector-side **call** (with
+caching, on the ingest hot path) is wired in KAN-30. It qualifies as the one justified sync
+dependency because the Collector cannot decide accept/reject without an authoritative answer.
 
 ### 5. Topic naming convention
 

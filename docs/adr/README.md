@@ -25,6 +25,7 @@ ADRs follow the [MADR](https://adr.github.io/madr/) lightweight template:
 | [0008](0008-raw-event-time-range-read.md)            | Bounded raw event-retrieval read (time-range `GET /query`, pagination)      | Accepted             |
 | [0009](0009-service-boundaries-and-communication.md) | Service boundaries & communication strategy (topic + sync-call inventories) | Accepted             |
 | [0010](0010-independently-deployable-services.md)    | Independently deployable services (containers, Zod config, health probes)   | Accepted             |
+| [0011](0011-project-schema-service.md)               | Project/Schema service (Postgres via Prisma, hashed API keys, JSON schemas) | Accepted             |
 
 ## Creating a new ADR
 

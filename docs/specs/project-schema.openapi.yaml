@@ -1,0 +1,536 @@
+openapi: 3.0.3
+info:
+  title: Cascade Project & Schema API
+  description: >
+    Manages projects (tenants), API keys, and per-project event schemas.
+    Projects are registered here first; API keys are issued per-project and
+    used by clients when calling the Collector. Event schemas (JSON Schema
+    documents) are registered here and fetched by the Collector for dynamic
+    per-project validation. API keys are stored argon2-hashed; the plaintext
+    key is returned only once at issuance. See ADR-0011.
+  version: 0.1.0
+servers:
+  - url: http://localhost:3004
+    description: Local development
+
+tags:
+  - name: Projects
+    description: Project (tenant) registration
+  - name: API Keys
+    description: API key lifecycle management
+  - name: Schemas
+    description: Per-project event schema registry
+  - name: Health
+    description: Liveness and readiness probes
+
+paths:
+  /projects:
+    post:
+      operationId: createProject
+      summary: Register a new project
+      description: >
+        Creates a new project (tenant). Returns the created project including
+        its server-generated UUID.
+      tags: [Projects]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProjectInput'
+            example:
+              name: 'My Game'
+      responses:
+        '201':
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+              example:
+                id: '550e8400-e29b-41d4-a716-446655440010'
+                name: 'My Game'
+                createdAt: '2026-06-02T10:00:00.000Z'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+
+  /projects/{projectId}/keys:
+    post:
+      operationId: issueApiKey
+      summary: Issue an API key for a project
+      description: >
+        Issues a new API key scoped to the specified project. Returns the
+        plaintext key (`cas_<prefix>.<secret>`) **exactly once** — it is not
+        retrievable again since only its argon2 hash is stored.
+      tags: [API Keys]
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+      responses:
+        '201':
+          description: API key issued — save the plaintext `key` now, it won't be shown again
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssuedApiKey'
+              example:
+                id: '660e8400-e29b-41d4-a716-446655440020'
+                projectId: '550e8400-e29b-41d4-a716-446655440010'
+                prefix: 'a1b2c3d4'
+                key: 'cas_a1b2c3d4.s3cr3trandomb1tshere32charslong'
+                createdAt: '2026-06-02T10:05:00.000Z'
+                revokedAt: null
+        '400':
+          description: Invalid project UUID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '404':
+          description: Project not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /projects/{projectId}/keys/{keyId}/revoke:
+    post:
+      operationId: revokeApiKey
+      summary: Revoke an API key
+      description: >
+        Marks the key as revoked. Subsequent `POST /api-keys/verify` calls for
+        this key will return `{ valid: false }`.
+      tags: [API Keys]
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - name: keyId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: UUID of the API key to revoke
+          example: '660e8400-e29b-41d4-a716-446655440020'
+      responses:
+        '200':
+          description: Key revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeyMetadata'
+              example:
+                id: '660e8400-e29b-41d4-a716-446655440020'
+                projectId: '550e8400-e29b-41d4-a716-446655440010'
+                prefix: 'a1b2c3d4'
+                createdAt: '2026-06-02T10:05:00.000Z'
+                revokedAt: '2026-06-02T11:00:00.000Z'
+        '400':
+          description: Invalid UUID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '404':
+          description: Key or project not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api-keys/verify:
+    post:
+      operationId: verifyApiKey
+      summary: Verify an API key (hot path)
+      description: >
+        Verify a presented key. Always returns 200 — an invalid/revoked key is
+        data (`{ valid: false }`), not an HTTP error. The Collector calls this
+        on its hot path to authenticate inbound events.
+      tags: [API Keys]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyKeyRequest'
+            example:
+              key: 'cas_a1b2c3d4.s3cr3trandomb1tshere32charslong'
+      responses:
+        '200':
+          description: Verification result (valid or not)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyKeyResponse'
+              examples:
+                valid:
+                  summary: Valid key
+                  value:
+                    valid: true
+                    projectId: '550e8400-e29b-41d4-a716-446655440010'
+                invalid:
+                  summary: Invalid or revoked key
+                  value:
+                    valid: false
+        '400':
+          description: Missing or malformed key field
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+
+  /projects/{projectId}/schemas:
+    post:
+      operationId: registerEventSchema
+      summary: Register or replace an event schema
+      description: >
+        Register (or replace) the JSON Schema document for an event type within
+        a project. Upserts by `(projectId, eventType)`. The Collector fetches
+        these schemas for dynamic per-project event validation.
+      tags: [Schemas]
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterEventSchemaInput'
+            example:
+              eventType: 'level_complete'
+              jsonSchema:
+                type: 'object'
+                required: ['level', 'score']
+                properties:
+                  level:
+                    type: 'integer'
+                    minimum: 1
+                  score:
+                    type: 'integer'
+                    minimum: 0
+      responses:
+        '201':
+          description: Schema registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventSchemaRecord'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '404':
+          description: Project not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      operationId: listEventSchemas
+      summary: List a project's event schemas
+      description: Returns all registered event schemas for the specified project.
+      tags: [Schemas]
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+      responses:
+        '200':
+          description: List of event schemas (may be empty)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EventSchemaRecord'
+        '400':
+          description: Invalid project UUID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+
+  /projects/{projectId}/schemas/{eventType}:
+    get:
+      operationId: getEventSchema
+      summary: Fetch a schema by event type
+      description: >
+        Returns the registered JSON Schema for a specific event type within
+        the given project.
+      tags: [Schemas]
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - name: eventType
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+          description: 'Event type discriminator, e.g. `level_complete`'
+          example: 'level_complete'
+      responses:
+        '200':
+          description: Event schema found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventSchemaRecord'
+        '404':
+          description: Schema not found for this project + event type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /health:
+    get:
+      operationId: liveness
+      summary: Liveness probe
+      description: Returns 200 when the process is up and serving HTTP.
+      tags: [Health]
+      responses:
+        '200':
+          description: Service is alive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /ready:
+    get:
+      operationId: readiness
+      summary: Readiness probe
+      description: >
+        Returns 200 when Postgres is reachable. Returns 503 when the service
+        cannot serve project/key/schema lookups.
+      tags: [Health]
+      responses:
+        '200':
+          description: Service is ready — Postgres is reachable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: Service is not ready — Postgres is unreachable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+components:
+  parameters:
+    projectId:
+      name: projectId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: UUID of the project
+      example: '550e8400-e29b-41d4-a716-446655440010'
+
+  schemas:
+    Project:
+      type: object
+      required: [id, name, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: '550e8400-e29b-41d4-a716-446655440010'
+        name:
+          type: string
+          minLength: 1
+          example: 'My Game'
+        createdAt:
+          type: string
+          format: date-time
+          example: '2026-06-02T10:00:00.000Z'
+
+    CreateProjectInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          example: 'My Game'
+
+    ApiKeyMetadata:
+      type: object
+      required: [id, projectId, prefix, createdAt, revokedAt]
+      description: >
+        Non-secret view of an API key. Never exposes the hash or the secret —
+        only the prefix (the indexed lookup id) and lifecycle timestamps.
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: '660e8400-e29b-41d4-a716-446655440020'
+        projectId:
+          type: string
+          format: uuid
+          example: '550e8400-e29b-41d4-a716-446655440010'
+        prefix:
+          type: string
+          minLength: 1
+          description: Non-secret 8-char id embedded in the key, e.g. `a1b2c3d4`
+          example: 'a1b2c3d4'
+        createdAt:
+          type: string
+          format: date-time
+          example: '2026-06-02T10:05:00.000Z'
+        revokedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Null if the key is still active
+          example: null
+
+    IssuedApiKey:
+      allOf:
+        - $ref: '#/components/schemas/ApiKeyMetadata'
+        - type: object
+          required: [key]
+          properties:
+            key:
+              type: string
+              description: >
+                One-time plaintext key (`cas_<prefix>.<secret>`). Not
+                retrievable after this response — store it immediately.
+              example: 'cas_a1b2c3d4.s3cr3trandomb1tshere32charslong'
+
+    VerifyKeyRequest:
+      type: object
+      required: [key]
+      properties:
+        key:
+          type: string
+          minLength: 1
+          description: The plaintext API key to verify
+          example: 'cas_a1b2c3d4.s3cr3trandomb1tshere32charslong'
+
+    VerifyKeyResponse:
+      type: object
+      required: [valid]
+      properties:
+        valid:
+          type: boolean
+          description: Whether the presented key is active and known
+          example: true
+        projectId:
+          type: string
+          format: uuid
+          description: Owning project — present only when `valid` is true
+          example: '550e8400-e29b-41d4-a716-446655440010'
+
+    EventSchemaRecord:
+      type: object
+      required: [id, projectId, eventType, jsonSchema, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: '770e8400-e29b-41d4-a716-446655440030'
+        projectId:
+          type: string
+          format: uuid
+          example: '550e8400-e29b-41d4-a716-446655440010'
+        eventType:
+          type: string
+          minLength: 1
+          example: 'level_complete'
+        jsonSchema:
+          type: object
+          additionalProperties: true
+          description: Arbitrary JSON Schema document stored as jsonb
+          example:
+            type: 'object'
+            required: ['level', 'score']
+            properties:
+              level:
+                type: 'integer'
+              score:
+                type: 'integer'
+        createdAt:
+          type: string
+          format: date-time
+          example: '2026-06-02T10:10:00.000Z'
+        updatedAt:
+          type: string
+          format: date-time
+          description: Last time the schema was (re-)registered — drives cache invalidation
+          example: '2026-06-02T10:10:00.000Z'
+
+    RegisterEventSchemaInput:
+      type: object
+      required: [eventType, jsonSchema]
+      properties:
+        eventType:
+          type: string
+          minLength: 1
+          maxLength: 200
+          example: 'level_complete'
+        jsonSchema:
+          type: object
+          additionalProperties: true
+          description: Arbitrary JSON Schema document
+          example:
+            type: 'object'
+            required: ['level', 'score']
+            properties:
+              level:
+                type: 'integer'
+                minimum: 1
+              score:
+                type: 'integer'
+                minimum: 0
+
+    ValidationError:
+      type: object
+      properties:
+        statusCode:
+          type: integer
+          example: 400
+        message:
+          type: string
+          example: 'Validation failed'
+        errors:
+          type: array
+          items:
+            type: object
+
+    ErrorResponse:
+      type: object
+      properties:
+        statusCode:
+          type: integer
+          example: 404
+        message:
+          type: string
+          example: 'Not Found'
+        error:
+          type: string
+          example: 'Not Found'
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, error]
+          example: 'ok'
+        info:
+          type: object
+          additionalProperties: true
+        error:
+          type: object
+          additionalProperties: true
+        details:
+          type: object
+          additionalProperties: true

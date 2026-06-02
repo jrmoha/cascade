@@ -4,6 +4,7 @@
     { "path": "libs/contracts" },
     { "path": "services/collector" },
     { "path": "services/ingestion-processor" },
+    { "path": "services/project-schema" },
     { "path": "services/query-api" }
   ]
 }

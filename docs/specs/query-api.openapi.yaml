@@ -1,0 +1,250 @@
+openapi: 3.0.3
+info:
+  title: Cascade Query API
+  description: >
+    Serves bounded raw event retrieval (replay, audit, debugging). Reads from
+    Cassandra using partition-key-bounded queries only — never a cross-partition
+    scan, never ALLOW FILTERING. The window maps to hourly `time_bucket`
+    partitions; span is capped at 7 days (168 buckets). See ADR-0008.
+  version: 0.1.0
+servers:
+  - url: http://localhost:3002
+    description: Local development
+
+tags:
+  - name: Query
+    description: Raw event retrieval
+  - name: Health
+    description: Liveness and readiness probes
+
+paths:
+  /query:
+    get:
+      operationId: queryEvents
+      summary: Read raw events in a time window
+      description: >
+        Read a project's stored events within an inclusive event-time window
+        [from, to], newest-first and cursor-paged. The window maps to hourly
+        `time_bucket` Cassandra partitions read one at a time — never a
+        cross-partition scan. Spans beyond 7 days (168 hourly buckets) are
+        rejected with 400. This endpoint serves bounded raw event retrieval
+        (replay/audit/debug); aggregation results are served separately from
+        read models.
+      tags: [Query]
+      parameters:
+        - name: projectId
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+          description: Project (tenant) to query
+          example: '550e8400-e29b-41d4-a716-446655440001'
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: 'Inclusive start of the event-time window (ISO-8601)'
+          example: '2026-06-01T00:00:00.000Z'
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: 'Inclusive end of the event-time window (ISO-8601)'
+          example: '2026-06-02T00:00:00.000Z'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+          description: Maximum number of events to return per page
+          example: 50
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+          description: >
+            Opaque pagination cursor from a previous response's `nextCursor`
+            field. Omit for the first page.
+          example: 'eyJidWNrZXQiOiIyMDI2LTA2LTAxVDAwIiwiZXZlbnRJZCI6Ii4uLiJ9'
+      responses:
+        '200':
+          description: Events in the requested window (may be empty)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryResponse'
+              example:
+                projectId: '550e8400-e29b-41d4-a716-446655440001'
+                from: '2026-06-01T00:00:00.000Z'
+                to: '2026-06-02T00:00:00.000Z'
+                count: 2
+                events:
+                  - eventId: '550e8400-e29b-41d4-a716-446655440000'
+                    projectId: '550e8400-e29b-41d4-a716-446655440001'
+                    type: 'level_complete'
+                    occurredAt: '2026-06-01T10:05:00.000Z'
+                    receivedAt: '2026-06-01T10:05:01.123Z'
+                    payload: { 'level': 5, 'score': 9800 }
+                    actorId: 'player_42'
+                nextCursor: 'eyJidWNrZXQiOiIyMDI2LTA2LTAxVDEwIiwiZXZlbnRJZCI6Ii4uLiJ9'
+        '400':
+          description: >
+            Bad request — e.g. `from` > `to`, or window exceeds 7-day cap
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /health:
+    get:
+      operationId: liveness
+      summary: Liveness probe
+      description: Returns 200 when the process is up and serving HTTP.
+      tags: [Health]
+      responses:
+        '200':
+          description: Service is alive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /ready:
+    get:
+      operationId: readiness
+      summary: Readiness probe
+      description: >
+        Returns 200 when Cassandra is reachable. Returns 503 when the Query API
+        cannot serve reads.
+      tags: [Health]
+      responses:
+        '200':
+          description: Service is ready — Cassandra is reachable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: Service is not ready — Cassandra is unreachable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+components:
+  schemas:
+    RawEvent:
+      type: object
+      required: [eventId, projectId, type, occurredAt, receivedAt, payload]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+          description: Server-stamped unique ID (idempotency key / Cassandra clustering key)
+          example: '550e8400-e29b-41d4-a716-446655440000'
+        projectId:
+          type: string
+          minLength: 1
+          description: Tenant/project identifier
+          example: '550e8400-e29b-41d4-a716-446655440001'
+        type:
+          type: string
+          minLength: 1
+          description: 'Event type discriminator, e.g. `level_complete`'
+          example: 'level_complete'
+        occurredAt:
+          type: string
+          format: date-time
+          description: Event time — when the event happened (client-reported)
+          example: '2026-06-01T10:05:00.000Z'
+        receivedAt:
+          type: string
+          format: date-time
+          description: Ingest time — when the Collector accepted the event
+          example: '2026-06-01T10:05:01.123Z'
+        payload:
+          type: object
+          additionalProperties: true
+          description: Arbitrary type-specific event body
+          example: { 'level': 5, 'score': 9800 }
+        sessionId:
+          type: string
+          description: Optional client session this event belongs to
+          example: 'sess_xyz'
+        actorId:
+          type: string
+          description: Optional player/user the event is about
+          example: 'player_42'
+        source:
+          type: string
+          description: 'Optional emitting source / SDK version'
+          example: 'unity-sdk@1.4.0'
+
+    QueryResponse:
+      type: object
+      required: [projectId, from, to, count, events]
+      properties:
+        projectId:
+          type: string
+          example: '550e8400-e29b-41d4-a716-446655440001'
+        from:
+          type: string
+          format: date-time
+          example: '2026-06-01T00:00:00.000Z'
+        to:
+          type: string
+          format: date-time
+          example: '2026-06-02T00:00:00.000Z'
+        count:
+          type: integer
+          description: Number of events in this page
+          example: 2
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/RawEvent'
+        nextCursor:
+          type: string
+          description: >
+            Opaque cursor to pass as `cursor` in the next request. Absent when
+            there are no more events.
+          example: 'eyJidWNrZXQiOiIyMDI2LTA2LTAxVDEwIiwiZXZlbnRJZCI6Ii4uLiJ9'
+
+    ErrorResponse:
+      type: object
+      properties:
+        statusCode:
+          type: integer
+          example: 400
+        message:
+          type: string
+          example: 'Time window spans 200 hourly buckets, exceeding the maximum of 168 (7 days)'
+        error:
+          type: string
+          example: 'Bad Request'
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, error]
+          example: 'ok'
+        info:
+          type: object
+          additionalProperties: true
+        error:
+          type: object
+          additionalProperties: true
+        details:
+          type: object
+          additionalProperties: true
