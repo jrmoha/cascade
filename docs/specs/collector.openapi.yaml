@@ -1,0 +1,187 @@
+openapi: 3.0.3
+info:
+  title: Cascade Collector API
+  description: >
+    Accepts inbound events from clients and producers them to the `raw-events`
+    Kafka topic. Validates the event envelope at the HTTP edge; invalid events
+    are rejected with a structured 400 and never reach Kafka. Valid events are
+    fire-and-acknowledged (202 once handed to the broker).
+  version: 0.1.0
+servers:
+  - url: http://localhost:3001
+    description: Local development
+
+tags:
+  - name: Events
+    description: Event ingestion endpoint
+  - name: Health
+    description: Liveness and readiness probes
+
+paths:
+  /collect:
+    post:
+      operationId: collectEvent
+      summary: Ingest an event
+      description: >
+        Accept a client event and produce it to Kafka. The body is validated
+        against the shared `collectEventSchema` contract. Returns 202 once the
+        event is handed to the broker. Invalid events get a structured 400 and
+        never reach Kafka.
+      tags: [Events]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CollectEventInput'
+            example:
+              projectId: 'proj_abc123'
+              type: 'level_complete'
+              occurredAt: '2026-06-02T10:00:00.000Z'
+              payload:
+                level: 5
+                score: 9800
+              sessionId: 'sess_xyz'
+              actorId: 'player_42'
+              source: 'unity-sdk@1.4.0'
+      responses:
+        '202':
+          description: Event accepted and queued to Kafka
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CollectEventResponse'
+              example:
+                eventId: '550e8400-e29b-41d4-a716-446655440000'
+                status: 'accepted'
+        '400':
+          description: Invalid event envelope — rejected before reaching Kafka
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+
+  /health:
+    get:
+      operationId: liveness
+      summary: Liveness probe
+      description: Returns 200 when the process is up and serving HTTP.
+      tags: [Health]
+      responses:
+        '200':
+          description: Service is alive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /ready:
+    get:
+      operationId: readiness
+      summary: Readiness probe
+      description: >
+        Returns 200 when Kafka is reachable. Returns 503 when the Collector
+        cannot produce events (pulled from rotation by the load balancer).
+      tags: [Health]
+      responses:
+        '200':
+          description: Service is ready — Kafka is reachable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: Service is not ready — Kafka is unreachable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+components:
+  schemas:
+    CollectEventInput:
+      type: object
+      required: [projectId, type]
+      properties:
+        projectId:
+          type: string
+          minLength: 1
+          description: Tenant/project identifier
+          example: 'proj_abc123'
+        type:
+          type: string
+          minLength: 1
+          description: 'Event type discriminator, e.g. `level_complete`'
+          example: 'level_complete'
+        occurredAt:
+          type: string
+          format: date-time
+          description: >
+            Event time — when the event happened (client-reported). Defaults to
+            server ingest time when omitted.
+          example: '2026-06-02T10:00:00.000Z'
+        payload:
+          type: object
+          additionalProperties: true
+          description: Arbitrary type-specific event body. Defaults to {} when omitted.
+          example: { 'level': 5, 'score': 9800 }
+        sessionId:
+          type: string
+          minLength: 1
+          description: Optional client session this event belongs to
+          example: 'sess_xyz'
+        actorId:
+          type: string
+          minLength: 1
+          description: Optional player/user the event is about
+          example: 'player_42'
+        source:
+          type: string
+          minLength: 1
+          description: 'Optional emitting source / SDK version, e.g. `unity-sdk@1.4.0`'
+          example: 'unity-sdk@1.4.0'
+
+    CollectEventResponse:
+      type: object
+      required: [eventId, status]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+          description: Server-stamped unique ID for the accepted event
+          example: '550e8400-e29b-41d4-a716-446655440000'
+        status:
+          type: string
+          enum: [accepted]
+          example: 'accepted'
+
+    ValidationError:
+      type: object
+      properties:
+        statusCode:
+          type: integer
+          example: 400
+        message:
+          type: string
+          example: 'Validation failed'
+        errors:
+          type: array
+          items:
+            type: object
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, error]
+          example: 'ok'
+        info:
+          type: object
+          additionalProperties: true
+        error:
+          type: object
+          additionalProperties: true
+        details:
+          type: object
+          additionalProperties: true
