@@ -18,7 +18,11 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "build": "tsc --build",
+    "typecheck": "tsc --build",
+    "proto:gen": "npm run proto:gen -w @cascade/contracts",
+    "proto:check": "npm run proto:check -w @cascade/contracts",
     "test": "vitest",
+    "test:ci": "npm test --workspaces --if-present",
     "smoke": "npm test -w @cascade/e2e",
     "prepare": "husky",
     "postinstall": "patch-package"

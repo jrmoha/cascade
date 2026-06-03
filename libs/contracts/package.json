@@ -13,15 +13,23 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "proto"
   ],
   "scripts": {
     "build": "tsc -b",
     "clean": "rm -rf dist tsconfig.tsbuildinfo",
+    "proto:gen": "mkdir -p src/generated && grpc_tools_node_protoc --plugin=protoc-gen-ts_proto=../../node_modules/.bin/protoc-gen-ts_proto --ts_proto_out=src/generated --ts_proto_opt=onlyTypes=true,esModuleInterop=true,snakeToCamel=true --proto_path=proto proto/project_schema.proto",
+    "proto:check": "npm run proto:gen && git diff --exit-code -- src/generated",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
     "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "grpc-tools": "^1.12.4",
+    "ts-proto": "^2.6.1",
+    "zod-to-json-schema": "^3.23.5"
   }
 }

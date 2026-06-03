@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+// The internal synchronous contract between the Collector (caller, KAN-30) and
+// the Project/Schema service (callee, KAN-28). The single sync dependency in the
+// ADR-0009 §4 inventory: the Collector cannot decide accept/reject at ingest
+// without an authoritative answer, so this is the one justified gRPC call.
+//
+// Compatibility (ADR-0012): field numbers are part of the contract — never
+// reuse or renumber a field, and never change a field's type. Add new fields
+// (or new RPCs) with fresh numbers; consumers tolerate unknown fields. A rename
+// or removal is a breaking change.
+//
+// The generated TypeScript (message interfaces) lives in
+// `src/generated/project_schema.ts` and is the single shared definition both
+// sides import — there are no hand-copied types. Runtime (de)serialization is
+// handled by NestJS + @grpc/proto-loader from this .proto at boot.
+package cascade.projectschema.v1;
+
+// Mirrors the wire surface already defined in Zod (libs/contracts/src/project-schema.ts).
+service ProjectSchema {
+  // Hot-path key verification. An invalid/revoked key is data (valid=false),
+  // not an error — the RPC succeeds either way.
+  rpc VerifyKey(VerifyKeyRequest) returns (VerifyKeyResponse);
+
+  // Fetch a project's registered JSON Schema for an event type, used by the
+  // Collector for dynamic per-project validation. NOT_FOUND when absent.
+  rpc GetEventSchema(GetEventSchemaRequest) returns (EventSchema);
+}
+
+message VerifyKeyRequest {
+  // The plaintext API key to verify (`cas_<prefix>.<secret>`).
+  string key = 1;
+}
+
+message VerifyKeyResponse {
+  // Whether the presented key is active and known.
+  bool valid = 1;
+  // Owning project — present only when `valid` is true.
+  optional string project_id = 2;
+}
+
+message GetEventSchemaRequest {
+  string project_id = 1;
+  // Event type discriminator, e.g. `level_complete`.
+  string event_type = 2;
+}
+
+message EventSchema {
+  string id = 1;
+  string project_id = 2;
+  string event_type = 3;
+  // The JSON Schema document, encoded as a JSON string (proto3 has no arbitrary
+  // object type). Callers JSON.parse it back into an object.
+  string json_schema = 4;
+  string created_at = 5;
+  string updated_at = 6;
+}
