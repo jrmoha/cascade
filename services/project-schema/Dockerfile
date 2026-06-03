@@ -23,6 +23,9 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/libs/contracts/package.json ./libs/contracts/package.json
 COPY --from=builder /app/libs/contracts/dist ./libs/contracts/dist
+# The gRPC server loads project_schema.proto at boot via @grpc/proto-loader;
+# ship it alongside dist (PROJECT_SCHEMA_PROTO_PATH resolves dist/../proto).
+COPY --from=builder /app/libs/contracts/proto ./libs/contracts/proto
 COPY --from=builder /app/services/project-schema/package.json ./services/project-schema/package.json
 COPY --from=builder /app/services/project-schema/dist ./services/project-schema/dist
 # Ship the Prisma schema + migrations: the service applies `migrate deploy` on

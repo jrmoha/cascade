@@ -1,0 +1,55 @@
+name: CI
+
+# Gates every PR and push to main. The contract-compatibility checks here are
+# the enforcement half of KAN-29 (ADR-0012): a breaking change to a shared
+# contract fails this workflow rather than surfacing in production.
+#   - proto:check  → committed ts-proto output must match `proto:gen` (a proto
+#                    edit without regeneration, or any drift, fails).
+#   - build        → `tsc --build` typechecks the whole graph; a removed/renamed
+#                    contract field breaks every consumer that references it.
+#   - test:ci      → unit tests incl. the JSON-Schema contract snapshot tripwire.
+# Docker/Testcontainers integration + the smoke gate run locally
+# (SKIP_INTEGRATION=1 here) to keep CI fast and deterministic.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: Contract codegen is up to date (proto)
+        run: npm run proto:check
+
+      - name: Typecheck & build
+        run: npm run build
+
+      - name: Test (unit + contract snapshot; integration gated off)
+        run: npm run test:ci
+        env:
+          SKIP_INTEGRATION: '1'

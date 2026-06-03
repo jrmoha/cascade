@@ -1,0 +1,222 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`contract compatibility snapshot > matches the committed JSON Schema for every shared contract 1`] = `
+{
+  "collectEvent": {
+    "$ref": "#/definitions/collectEvent",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "definitions": {
+      "collectEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "actorId": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "type": "string",
+          },
+          "payload": {
+            "additionalProperties": {},
+            "default": {},
+            "type": "object",
+          },
+          "projectId": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "sessionId": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "source": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "type": {
+            "minLength": 1,
+            "type": "string",
+          },
+        },
+        "required": [
+          "projectId",
+          "type",
+        ],
+        "type": "object",
+      },
+    },
+  },
+  "eventSchemaRecord": {
+    "$ref": "#/definitions/eventSchemaRecord",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "definitions": {
+      "eventSchemaRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+          },
+          "eventType": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string",
+          },
+          "jsonSchema": {
+            "additionalProperties": {},
+            "type": "object",
+          },
+          "projectId": {
+            "format": "uuid",
+            "type": "string",
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string",
+          },
+        },
+        "required": [
+          "id",
+          "projectId",
+          "eventType",
+          "jsonSchema",
+          "createdAt",
+          "updatedAt",
+        ],
+        "type": "object",
+      },
+    },
+  },
+  "rawEvent": {
+    "$ref": "#/definitions/rawEvent",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "definitions": {
+      "rawEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "actorId": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "eventId": {
+            "format": "uuid",
+            "type": "string",
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "type": "string",
+          },
+          "payload": {
+            "additionalProperties": {},
+            "default": {},
+            "type": "object",
+          },
+          "projectId": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "receivedAt": {
+            "format": "date-time",
+            "type": "string",
+          },
+          "schemaVersion": {
+            "default": 1,
+            "exclusiveMinimum": 0,
+            "type": "integer",
+          },
+          "sessionId": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "source": {
+            "minLength": 1,
+            "type": "string",
+          },
+          "type": {
+            "minLength": 1,
+            "type": "string",
+          },
+        },
+        "required": [
+          "eventId",
+          "projectId",
+          "type",
+          "occurredAt",
+          "receivedAt",
+        ],
+        "type": "object",
+      },
+    },
+  },
+  "registerEventSchema": {
+    "$ref": "#/definitions/registerEventSchema",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "definitions": {
+      "registerEventSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "eventType": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string",
+          },
+          "jsonSchema": {
+            "additionalProperties": {},
+            "type": "object",
+          },
+        },
+        "required": [
+          "eventType",
+          "jsonSchema",
+        ],
+        "type": "object",
+      },
+    },
+  },
+  "verifyKeyRequest": {
+    "$ref": "#/definitions/verifyKeyRequest",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "definitions": {
+      "verifyKeyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "minLength": 1,
+            "type": "string",
+          },
+        },
+        "required": [
+          "key",
+        ],
+        "type": "object",
+      },
+    },
+  },
+  "verifyKeyResponse": {
+    "$ref": "#/definitions/verifyKeyResponse",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "definitions": {
+      "verifyKeyResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "projectId": {
+            "format": "uuid",
+            "type": "string",
+          },
+          "valid": {
+            "type": "boolean",
+          },
+        },
+        "required": [
+          "valid",
+        ],
+        "type": "object",
+      },
+    },
+  },
+}
+`;

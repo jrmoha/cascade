@@ -5,6 +5,7 @@ import { ProjectsModule } from './projects/projects.module';
 import { ApiKeysModule } from './api-keys/api-keys.module';
 import { SchemasModule } from './schemas/schemas.module';
 import { HealthModule } from './health/health.module';
+import { GrpcModule } from './grpc/grpc.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { HealthModule } from './health/health.module';
     ApiKeysModule,
     SchemasModule,
     HealthModule,
+    GrpcModule,
   ],
 })
 export class AppModule {}

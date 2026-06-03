@@ -7,6 +7,19 @@ import { z } from 'zod';
 export const RAW_EVENTS_TOPIC = 'raw-events';
 
 /**
+ * Current version of the {@link rawEventSchema} wire envelope (KAN-29). Stamped
+ * by the Collector on every produced event and carried on the `raw-events`
+ * topic so consumers can reason about which schema produced a message.
+ *
+ * **Bump semantics** (see ADR-0012): leave this untouched for **additive,
+ * backward-compatible** changes (a new optional field) — old and new consumers
+ * interoperate. Bump it only for a **breaking** change (a renamed or removed
+ * field, or a tightened required field), and only alongside a documented
+ * migration. Consumers tolerate unknown fields and never depend on field order.
+ */
+export const RAW_EVENT_SCHEMA_VERSION = 1;
+
+/**
  * The canonical event envelope every Cascade event conforms to — the single
  * shared contract across services (KAN-21). This Zod schema is the **one source
  * of truth**: the `RawEvent` TypeScript type is derived from it via `z.infer`,
@@ -31,6 +44,14 @@ export const rawEventSchema = z
 
     /** Tenant/project identifier. Doubles as the Kafka partition key. */
     projectId: z.string().min(1),
+
+    /**
+     * Wire-envelope version (KAN-29). Server-stamped by the Collector to
+     * {@link RAW_EVENT_SCHEMA_VERSION}. Defaults to `1` when absent so a legacy
+     * message (produced before this field existed) still parses — the field is
+     * additive and backward-compatible. See ADR-0012 for bump semantics.
+     */
+    schemaVersion: z.number().int().positive().default(RAW_EVENT_SCHEMA_VERSION),
 
     /** Event type discriminator, e.g. `level_complete`. */
     type: z.string().min(1),
@@ -76,9 +97,10 @@ export type RawEvent = z.infer<typeof rawEventSchema>;
  * the one canonical contract rather than a re-implemented copy (KAN-22).
  *
  * Differences from the full envelope:
- * - `eventId` and `receivedAt` are omitted — they are stamped server-side. The
- *   schema `.strip()`s unknown keys, so a client that sends them (or any other
- *   stray field) has them silently ignored and re-stamped, rather than rejected.
+ * - `eventId`, `receivedAt` and `schemaVersion` are omitted — they are stamped
+ *   server-side. The schema `.strip()`s unknown keys, so a client that sends
+ *   them (or any other stray field) has them silently ignored and re-stamped,
+ *   rather than rejected.
  * - `occurredAt` is optional — the Collector defaults it to `receivedAt` when
  *   the client omits it. (`payload` is already optional via its default.)
  *
@@ -86,7 +108,7 @@ export type RawEvent = z.infer<typeof rawEventSchema>;
  * validation, so bad data never reaches the `raw-events` topic.
  */
 export const collectEventSchema = rawEventSchema
-  .omit({ eventId: true, receivedAt: true })
+  .omit({ eventId: true, receivedAt: true, schemaVersion: true })
   .partial({ occurredAt: true })
   .strip();
 
