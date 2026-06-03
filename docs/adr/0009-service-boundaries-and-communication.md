@@ -72,16 +72,19 @@ group, so adding the Aggregator never disturbs the Ingestion-Processor.
 
 ### 4. Sync-call inventory
 
-| Caller → Callee            | Purpose                                   | Status                                  |
-| -------------------------- | ----------------------------------------- | --------------------------------------- |
-| Collector → Project/Schema | Validate API key / event schema at ingest | Callee built (KAN-28); caller is KAN-30 |
+| Caller → Callee            | Purpose                                   | Transport | Status                                                |
+| -------------------------- | ----------------------------------------- | --------- | ----------------------------------------------------- |
+| Collector → Project/Schema | Validate API key / event schema at ingest | **gRPC**  | Contract + callee built (KAN-28/29); caller is KAN-30 |
 
 There are still **no** live synchronous service-to-service calls. The Collector validates events
 structurally against the shared contract in-process ([ADR-0005](0005-validate-at-collector-edge.md)).
-The Project/Schema **callee** now exists (KAN-28 / [ADR-0011](0011-project-schema-service.md)) and
-exposes the `POST /api-keys/verify` and schema-fetch endpoints; the Collector-side **call** (with
-caching, on the ingest hot path) is wired in KAN-30. It qualifies as the one justified sync
-dependency because the Collector cannot decide accept/reject without an authoritative answer.
+The Project/Schema **callee** now exists (KAN-28 / [ADR-0011](0011-project-schema-service.md)); as of
+KAN-29 the sync contract is defined as a typed **gRPC** service — `ProjectSchema.VerifyKey` /
+`GetEventSchema`, generated from `libs/contracts/proto/project_schema.proto`
+([ADR-0012](0012-inter-service-contract-versioning.md)) — served by the now-hybrid (HTTP + gRPC)
+Project/Schema service alongside its REST admin endpoints. The Collector-side **call** (with caching,
+on the ingest hot path) is wired in KAN-30. It qualifies as the one justified sync dependency because
+the Collector cannot decide accept/reject without an authoritative answer.
 
 ### 5. Topic naming convention
 

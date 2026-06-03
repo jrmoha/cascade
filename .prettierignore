@@ -1,3 +1,7 @@
 node_modules/
 dist/
 .claude/
+
+# Committed ts-proto output (DO NOT EDIT) — keep it byte-identical to `proto:gen`
+# so `proto:check`'s git-diff is a reliable CI tripwire.
+**/src/generated/

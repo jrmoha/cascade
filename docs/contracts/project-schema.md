@@ -87,15 +87,38 @@ Verify, register a schema, revoke:
 // subsequent POST /api-keys/verify with that key → { "valid": false }
 ```
 
+## Synchronous contract (gRPC)
+
+The internal hot-path call the Collector makes (KAN-30) is **gRPC**, not REST — the one justified
+sync dependency in [ADR-0009](../adr/0009-service-boundaries-and-communication.md) §4. The contract
+is [`libs/contracts/proto/project_schema.proto`](../../libs/contracts/proto/project_schema.proto),
+ts-proto-generated into `libs/contracts/src/generated/` (committed; re-exported as the
+`projectSchemaProto` namespace) via `npm run proto:gen`. Project/Schema is therefore a **hybrid HTTP +
+gRPC app**: the REST table above is its admin surface; these RPCs are the service-to-service contract.
+See [ADR-0012](../adr/0012-inter-service-contract-versioning.md).
+
+| RPC (`package cascade.projectschema.v1`, service `ProjectSchema`) | Request                    | Response / errors                                                          |
+| ----------------------------------------------------------------- | -------------------------- | -------------------------------------------------------------------------- |
+| `VerifyKey`                                                       | `{ key }`                  | `{ valid, projectId? }` — invalid/revoked is data, not an error            |
+| `GetEventSchema`                                                  | `{ projectId, eventType }` | `EventSchema` (`jsonSchema` is a **JSON string**); `NOT_FOUND` when absent |
+
+Both RPCs delegate to the same `ApiKeysService` / `SchemasService` as the REST controllers, so there
+is no duplicated logic. `jsonSchema` travels as a JSON-encoded string because proto3 has no
+arbitrary-object type — callers `JSON.parse` it back. The gRPC bind address is `GRPC_URL`
+(default `0.0.0.0:50051`). Compatibility rule: proto field numbers are part of the contract — never
+reuse or renumber; add fields/RPCs additively (ADR-0012).
+
 ## Health
 
 `GET /health` (liveness) and `GET /ready` (readiness, pings Postgres via `SELECT 1`) per
-[ADR-0010](../adr/0010-independently-deployable-services.md). Container port **3004**.
+[ADR-0010](../adr/0010-independently-deployable-services.md). Container port **3004**; gRPC on
+**50051**.
 
 ## Phase notes
 
-This ticket builds the service and its operations. The **Collector → Project/Schema** sync call
-(per-request key verification + schema fetch, with caching) is KAN-30 — it is the single justified
-synchronous dependency recorded in [ADR-0009](../adr/0009-service-boundaries-and-communication.md).
+KAN-28 built the service and its operations; KAN-29 added the typed gRPC sync contract (above). The
+**Collector → Project/Schema** _call_ itself (per-request key verification + schema fetch, with
+caching) is KAN-30 — the single justified synchronous dependency recorded in
+[ADR-0009](../adr/0009-service-boundaries-and-communication.md).
 Storing schemas as JSON Schema in jsonb is what lets the Collector validate a project's events
 dynamically then, with no redeploy when a new event type is added.

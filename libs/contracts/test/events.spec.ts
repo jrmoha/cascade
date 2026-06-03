@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { collectEventSchema, rawEventSchema, type RawEvent } from '../src/events';
+import {
+  collectEventSchema,
+  RAW_EVENT_SCHEMA_VERSION,
+  rawEventSchema,
+  type RawEvent,
+} from '../src/events';
 
 const valid = {
   eventId: '8e8275f3-7874-43df-bbbf-f1a73a1aeb06',
   projectId: 'game-1',
+  schemaVersion: 1,
   type: 'level_complete',
   occurredAt: '2026-05-30T15:16:50.165Z',
   receivedAt: '2026-05-30T15:16:50.200Z',
@@ -67,6 +73,22 @@ describe('rawEventSchema', () => {
   it('rejects unknown keys (strict envelope)', () => {
     expect(() => rawEventSchema.parse({ ...valid, rogue: 'nope' })).toThrow();
   });
+
+  it('defaults schemaVersion to the current version when omitted (backward-compatible)', () => {
+    const input: Record<string, unknown> = { ...valid };
+    delete input.schemaVersion;
+    expect(rawEventSchema.parse(input).schemaVersion).toBe(RAW_EVENT_SCHEMA_VERSION);
+  });
+
+  it('accepts an explicit schemaVersion', () => {
+    expect(rawEventSchema.parse({ ...valid, schemaVersion: 2 }).schemaVersion).toBe(2);
+  });
+
+  it('rejects a non-positive or non-integer schemaVersion', () => {
+    expect(() => rawEventSchema.parse({ ...valid, schemaVersion: 0 })).toThrow();
+    expect(() => rawEventSchema.parse({ ...valid, schemaVersion: -1 })).toThrow();
+    expect(() => rawEventSchema.parse({ ...valid, schemaVersion: 1.5 })).toThrow();
+  });
 });
 
 describe('collectEventSchema (client input, derived from rawEventSchema)', () => {
@@ -87,14 +109,16 @@ describe('collectEventSchema (client input, derived from rawEventSchema)', () =>
     expect(parsed.payload).toEqual({});
   });
 
-  it('strips server-stamped fields (eventId, receivedAt) instead of rejecting them', () => {
+  it('strips server-stamped fields (eventId, receivedAt, schemaVersion) instead of rejecting them', () => {
     const parsed = collectEventSchema.parse({
       ...input,
       eventId: '8e8275f3-7874-43df-bbbf-f1a73a1aeb06',
       receivedAt: '2026-05-30T15:16:50.200Z',
+      schemaVersion: 99,
     }) as Record<string, unknown>;
     expect(parsed.eventId).toBeUndefined();
     expect(parsed.receivedAt).toBeUndefined();
+    expect(parsed.schemaVersion).toBeUndefined();
   });
 
   it('strips other unknown keys instead of rejecting them', () => {

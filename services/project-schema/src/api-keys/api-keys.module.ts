@@ -7,5 +7,6 @@ import { ApiKeysService } from './api-keys.service';
   imports: [ProjectsModule],
   controllers: [ApiKeysController],
   providers: [ApiKeysService],
+  exports: [ApiKeysService],
 })
 export class ApiKeysModule {}

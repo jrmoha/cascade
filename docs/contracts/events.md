@@ -20,17 +20,18 @@ validate on receipt. The topic name is exported as `RAW_EVENTS_TOPIC = 'raw-even
 
 ## Envelope
 
-| Field        | Type                | Required | Notes                                                                                                                                                      |
-| ------------ | ------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `eventId`    | `string` (UUID)     | yes      | Server-stamped by the Collector. The downstream **idempotency key** for dedup (Cassandra clustering key — see ADR-0001).                                   |
-| `projectId`  | `string`            | yes      | Tenant id; also the Kafka partition key.                                                                                                                   |
-| `type`       | `string`            | yes      | Event type discriminator, e.g. `level_complete`.                                                                                                           |
-| `occurredAt` | `string` (ISO-8601) | yes      | **Event time** — when it happened, reported by the client. Aggregation keys off this, not arrival order. Defaulted to `receivedAt` if the client omits it. |
-| `receivedAt` | `string` (ISO-8601) | yes      | **Ingest time** — when the Collector accepted the event. Stamped server-side.                                                                              |
-| `payload`    | `object`            | yes      | Arbitrary type-specific body; defaults to `{}`.                                                                                                            |
-| `sessionId`  | `string`            | no       | Client session the event belongs to.                                                                                                                       |
-| `actorId`    | `string`            | no       | The player/user the event is about.                                                                                                                        |
-| `source`     | `string`            | no       | Emitting source / SDK version, e.g. `unity-sdk@1.4.0`.                                                                                                     |
+| Field           | Type                | Required | Notes                                                                                                                                                                                        |
+| --------------- | ------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `eventId`       | `string` (UUID)     | yes      | Server-stamped by the Collector. The downstream **idempotency key** for dedup (Cassandra clustering key — see ADR-0001).                                                                     |
+| `projectId`     | `string`            | yes      | Tenant id; also the Kafka partition key.                                                                                                                                                     |
+| `schemaVersion` | `number` (int ≥ 1)  | yes      | Wire-envelope version, server-stamped to `RAW_EVENT_SCHEMA_VERSION` (currently `1`); defaults to `1` if absent. Wire-only — not persisted to Cassandra. See _Versioning_ below and ADR-0012. |
+| `type`          | `string`            | yes      | Event type discriminator, e.g. `level_complete`.                                                                                                                                             |
+| `occurredAt`    | `string` (ISO-8601) | yes      | **Event time** — when it happened, reported by the client. Aggregation keys off this, not arrival order. Defaulted to `receivedAt` if the client omits it.                                   |
+| `receivedAt`    | `string` (ISO-8601) | yes      | **Ingest time** — when the Collector accepted the event. Stamped server-side.                                                                                                                |
+| `payload`       | `object`            | yes      | Arbitrary type-specific body; defaults to `{}`.                                                                                                                                              |
+| `sessionId`     | `string`            | no       | Client session the event belongs to.                                                                                                                                                         |
+| `actorId`       | `string`            | no       | The player/user the event is about.                                                                                                                                                          |
+| `source`        | `string`            | no       | Emitting source / SDK version, e.g. `unity-sdk@1.4.0`.                                                                                                                                       |
 
 The schema is **strict**: unknown keys are rejected.
 
@@ -41,14 +42,25 @@ out-of-order events are normal in telemetry — a client may buffer events offli
 minutes later. Aggregations and the Cassandra `time_bucket` partition key off `occurredAt`, so an
 event lands in the window for **when it happened**, not when it arrived.
 
+### Versioning
+
+The envelope carries an integer `schemaVersion`, exported as `RAW_EVENT_SCHEMA_VERSION` (currently
+`1`) and stamped by the Collector on every event. The compatibility rule (ADR-0012): **additive is
+safe, rename/remove/retype is breaking.** Leave the version untouched for an additive change (a new
+optional field — old and new consumers interoperate); bump it only for a breaking change, alongside a
+documented migration. `schemaVersion` has a `.default(1)`, so a legacy message produced before the
+field existed still parses. It is **wire-only** — carried on Kafka but not persisted to Cassandra; the
+Query API read path re-stamps the current version on round-trip. A breaking change to this contract
+fails CI (the JSON-Schema contract snapshot + `tsc --build`) before it can ship — see ADR-0012.
+
 ## Input to `POST /collect`
 
 The request body is validated at the edge (KAN-22) against `collectEventSchema`, which is
-**derived from `rawEventSchema`** (`rawEventSchema.omit({ eventId, receivedAt }).partial({ occurredAt }).strip()`)
+**derived from `rawEventSchema`** (`rawEventSchema.omit({ eventId, receivedAt, schemaVersion }).partial({ occurredAt }).strip()`)
 — not a re-implemented copy, so the gate and the canonical contract can never diverge. Bad data
 is rejected here and never reaches the `raw-events` topic. Clients never supply `eventId`
-(server-generated) or `receivedAt` (ingest time); `occurredAt`, `payload`, and the optional
-fields may be omitted:
+(server-generated), `receivedAt` (ingest time), or `schemaVersion` (server-stamped); `occurredAt`,
+`payload`, and the optional fields may be omitted:
 
 ```jsonc
 {
@@ -86,7 +98,7 @@ This is synchronous, edge-level rejection. Downstream processing failures are a 
 
 ```
 key:   game-1
-value: {"eventId":"8e8275f3-7874-43df-bbbf-f1a73a1aeb06","projectId":"game-1","type":"level_complete","occurredAt":"2026-05-30T15:16:50.165Z","receivedAt":"2026-05-30T15:16:50.200Z","payload":{"level":3},"sessionId":"sess-9","actorId":"player-42","source":"unity-sdk@1.4.0"}
+value: {"eventId":"8e8275f3-7874-43df-bbbf-f1a73a1aeb06","projectId":"game-1","schemaVersion":1,"type":"level_complete","occurredAt":"2026-05-30T15:16:50.165Z","receivedAt":"2026-05-30T15:16:50.200Z","payload":{"level":3},"sessionId":"sess-9","actorId":"player-42","source":"unity-sdk@1.4.0"}
 ```
 
 ## Cassandra mapping (Ingestion-Processor)
@@ -94,18 +106,19 @@ value: {"eventId":"8e8275f3-7874-43df-bbbf-f1a73a1aeb06","projectId":"game-1","t
 The Ingestion-Processor validates each consumed message against `rawEventSchema`, then appends it
 to `cascade.raw_events`. The envelope maps to columns as:
 
-| RawEvent field | Column        | Type        | Notes                                                                                |
-| -------------- | ------------- | ----------- | ------------------------------------------------------------------------------------ |
-| `projectId`    | `project_id`  | `text`      | Partition key (part 1).                                                              |
-| _derived_      | `time_bucket` | `text`      | Partition key (part 2). Hourly UTC bucket `YYYY-MM-DDTHH` derived from `occurredAt`. |
-| `occurredAt`   | `occurred_at` | `timestamp` | Event time. Clustering key (DESC) → newest-first reads.                              |
-| `eventId`      | `event_id`    | `uuid`      | Clustering key (after `occurred_at`) → tie-break + uniqueness → idempotent upsert.   |
-| `type`         | `type`        | `text`      |                                                                                      |
-| `receivedAt`   | `received_at` | `timestamp` | Ingest time.                                                                         |
-| `payload`      | `payload`     | `text`      | JSON-encoded.                                                                        |
-| `sessionId`    | `session_id`  | `text`      | Nullable.                                                                            |
-| `actorId`      | `actor_id`    | `text`      | Nullable.                                                                            |
-| `source`       | `source`      | `text`      | Nullable.                                                                            |
+| RawEvent field  | Column        | Type        | Notes                                                                                               |
+| --------------- | ------------- | ----------- | --------------------------------------------------------------------------------------------------- |
+| `projectId`     | `project_id`  | `text`      | Partition key (part 1).                                                                             |
+| _derived_       | `time_bucket` | `text`      | Partition key (part 2). Hourly UTC bucket `YYYY-MM-DDTHH` derived from `occurredAt`.                |
+| `occurredAt`    | `occurred_at` | `timestamp` | Event time. Clustering key (DESC) → newest-first reads.                                             |
+| `eventId`       | `event_id`    | `uuid`      | Clustering key (after `occurred_at`) → tie-break + uniqueness → idempotent upsert.                  |
+| `type`          | `type`        | `text`      |                                                                                                     |
+| `receivedAt`    | `received_at` | `timestamp` | Ingest time.                                                                                        |
+| `payload`       | `payload`     | `text`      | JSON-encoded.                                                                                       |
+| `sessionId`     | `session_id`  | `text`      | Nullable.                                                                                           |
+| `actorId`       | `actor_id`    | `text`      | Nullable.                                                                                           |
+| `source`        | `source`      | `text`      | Nullable.                                                                                           |
+| `schemaVersion` | _(none)_      | —           | **Not persisted** — wire-only (ADR-0012). The Query API re-stamps the current version on read-back. |
 
 - **Primary key:** `((project_id, time_bucket), occurred_at, event_id)` with
   `CLUSTERING ORDER BY (occurred_at DESC, event_id ASC)` and a 30-day TTL. See **ADR-0007** for the

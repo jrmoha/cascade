@@ -62,7 +62,9 @@ export class ProcessorController {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
         await this.repository.insert(event);
-        this.logger.debug(`Persisted event ${event.eventId} for project ${event.projectId}`);
+        this.logger.debug(
+          `Persisted event ${event.eventId} (schema v${event.schemaVersion}) for project ${event.projectId}`,
+        );
         return;
       } catch (err) {
         lastError = err;
