@@ -13,7 +13,7 @@ import { GenericContainer, Wait, type StartedTestContainer } from 'testcontainer
 import { Kafka, type Admin } from 'kafkajs';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { RAW_EVENTS_TOPIC, type RawEvent } from '@cascade/contracts';
+import { RAW_EVENT_SCHEMA_VERSION, RAW_EVENTS_TOPIC, type RawEvent } from '@cascade/contracts';
 import { AppModule as CollectorAppModule } from '../../services/collector/src/app.module';
 import { AppModule as IngestionAppModule } from '../../services/ingestion-processor/src/app.module';
 import { AppModule as QueryAppModule } from '../../services/query-api/src/app.module';
@@ -138,6 +138,7 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Walking-skeleton smoke (e
     expect(rest).toEqual({
       eventId,
       projectId: sent.projectId,
+      schemaVersion: RAW_EVENT_SCHEMA_VERSION,
       type: sent.type,
       occurredAt: sent.occurredAt,
       payload: sent.payload,

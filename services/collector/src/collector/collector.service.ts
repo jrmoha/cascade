@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { ClientKafka } from '@nestjs/microservices';
-import { CollectEventInput, RAW_EVENTS_TOPIC, RawEvent, rawEventSchema } from '@cascade/contracts';
+import {
+  CollectEventInput,
+  RAW_EVENT_SCHEMA_VERSION,
+  RAW_EVENTS_TOPIC,
+  RawEvent,
+  rawEventSchema,
+} from '@cascade/contracts';
 import { lastValueFrom } from 'rxjs';
 import { KAFKA_PRODUCER } from './kafka.tokens';
 
@@ -34,6 +40,7 @@ export class CollectorService implements OnApplicationBootstrap {
     const event: RawEvent = rawEventSchema.parse({
       eventId: randomUUID(),
       projectId: input.projectId,
+      schemaVersion: RAW_EVENT_SCHEMA_VERSION,
       type: input.type,
       occurredAt: input.occurredAt ?? receivedAt,
       receivedAt,

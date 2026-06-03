@@ -177,9 +177,13 @@ services:
     profiles: ['apps']
     ports:
       - '3004:3004'
+      # gRPC sync contract (Collector → Project/Schema, KAN-29/30).
+      - '50051:50051'
     environment:
       NODE_ENV: production
       PORT: '3004'
+      # Bind the gRPC server on all interfaces so peers reach it by service name.
+      GRPC_URL: '0.0.0.0:50051'
       # Prisma reads DATABASE_URL directly; use the postgres service name.
       DATABASE_URL: postgresql://cascade:cascade@postgres:5432/cascade
     depends_on:

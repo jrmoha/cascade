@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { RAW_EVENT_SCHEMA_VERSION } from '@cascade/contracts';
 import type { CassandraService } from '../src/cassandra/cassandra.service';
 import { InvalidCursorError, RawEventReadRepository } from '../src/query/raw-event.read-repository';
 
@@ -100,6 +101,7 @@ describe('RawEventReadRepository.readWindow', () => {
       {
         eventId: '11111111-1111-4111-8111-111111111111',
         projectId: 'game-1',
+        schemaVersion: RAW_EVENT_SCHEMA_VERSION,
         type: 'level_complete',
         occurredAt: '2026-05-30T15:10:00.000Z',
         receivedAt: '2026-05-30T15:10:00.500Z',
@@ -112,6 +114,7 @@ describe('RawEventReadRepository.readWindow', () => {
         // Optional columns null here → absent from the read-back envelope.
         eventId: '22222222-2222-4222-8222-222222222222',
         projectId: 'game-1',
+        schemaVersion: RAW_EVENT_SCHEMA_VERSION,
         type: 'level_start',
         occurredAt: '2026-05-30T14:50:00.000Z',
         receivedAt: '2026-05-30T14:50:00.500Z',

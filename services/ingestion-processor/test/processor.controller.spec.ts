@@ -8,6 +8,7 @@ import { MAX_ATTEMPTS, ProcessorController } from '../src/processor/processor.co
 const validEvent: RawEvent = {
   eventId: '8e8275f3-7874-43df-bbbf-f1a73a1aeb06',
   projectId: 'game-1',
+  schemaVersion: 1,
   type: 'level_complete',
   occurredAt: '2026-05-30T15:16:50.165Z',
   receivedAt: '2026-05-30T15:16:50.200Z',

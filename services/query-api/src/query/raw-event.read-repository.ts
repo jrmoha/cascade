@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { types } from 'cassandra-driver';
-import { hourlyBucketRange, MAX_QUERY_BUCKETS, RawEvent } from '@cascade/contracts';
+import {
+  hourlyBucketRange,
+  MAX_QUERY_BUCKETS,
+  RAW_EVENT_SCHEMA_VERSION,
+  RawEvent,
+} from '@cascade/contracts';
 import { CassandraService, KEYSPACE } from '../cassandra/cassandra.service';
 
 const SELECT_WINDOW = `
@@ -72,6 +77,9 @@ function toRawEvent(row: types.Row): RawEvent {
   const event: RawEvent = {
     eventId: row.get('event_id').toString(),
     projectId: row.get('project_id'),
+    // `schema_version` is not persisted (wire-only, KAN-29 / ADR-0012), so the
+    // read path stamps the current envelope version on round-trip.
+    schemaVersion: RAW_EVENT_SCHEMA_VERSION,
     type: row.get('type'),
     occurredAt: new Date(row.get('occurred_at')).toISOString(),
     receivedAt: new Date(row.get('received_at')).toISOString(),

@@ -107,6 +107,7 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Ingestion DLQ (integratio
     const event = (eventId: string): RawEvent => ({
       eventId,
       projectId: PROJECT,
+      schemaVersion: 1,
       type: 'level_complete',
       occurredAt: now,
       receivedAt: now,

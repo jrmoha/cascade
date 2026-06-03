@@ -7,5 +7,6 @@ import { SchemasService } from './schemas.service';
   imports: [ProjectsModule],
   controllers: [SchemasController],
   providers: [SchemasService],
+  exports: [SchemasService],
 })
 export class SchemasModule {}
