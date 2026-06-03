@@ -37,6 +37,13 @@ jobs:
       - name: Install
         run: npm ci
 
+      # The Project/Schema service's @prisma/client types (Project, ApiKey,
+      # EventSchema, Prisma.InputJsonObject) are produced by `prisma generate`,
+      # not shipped by `npm ci`. Generate before build/test or `tsc --build`
+      # can't resolve them. (Locally the service's own `build` does this.)
+      - name: Generate Prisma client
+        run: npm run prisma:generate -w @cascade/project-schema
+
       - name: Lint
         run: npm run lint
 
