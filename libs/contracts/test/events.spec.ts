@@ -93,7 +93,6 @@ describe('rawEventSchema', () => {
 
 describe('collectEventSchema (client input, derived from rawEventSchema)', () => {
   const input = {
-    projectId: 'game-1',
     type: 'level_complete',
     occurredAt: '2026-05-30T15:16:50.165Z',
     payload: { level: 3 },
@@ -104,21 +103,25 @@ describe('collectEventSchema (client input, derived from rawEventSchema)', () =>
   });
 
   it('makes occurredAt optional and defaults payload to {}', () => {
-    const parsed = collectEventSchema.parse({ projectId: 'game-1', type: 'ping' });
+    const parsed = collectEventSchema.parse({ type: 'ping' });
     expect(parsed.occurredAt).toBeUndefined();
     expect(parsed.payload).toEqual({});
   });
 
-  it('strips server-stamped fields (eventId, receivedAt, schemaVersion) instead of rejecting them', () => {
+  it('strips server-stamped fields (eventId, receivedAt, schemaVersion, projectId) instead of rejecting them', () => {
     const parsed = collectEventSchema.parse({
       ...input,
       eventId: '8e8275f3-7874-43df-bbbf-f1a73a1aeb06',
       receivedAt: '2026-05-30T15:16:50.200Z',
       schemaVersion: 99,
+      // projectId is derived from the API key server-side (KAN-30); a
+      // client-supplied one is ignored, not honoured.
+      projectId: 'someone-elses-project',
     }) as Record<string, unknown>;
     expect(parsed.eventId).toBeUndefined();
     expect(parsed.receivedAt).toBeUndefined();
     expect(parsed.schemaVersion).toBeUndefined();
+    expect(parsed.projectId).toBeUndefined();
   });
 
   it('strips other unknown keys instead of rejecting them', () => {
@@ -140,12 +143,12 @@ describe('collectEventSchema (client input, derived from rawEventSchema)', () =>
     });
   });
 
-  it('rejects a missing required field (projectId)', () => {
-    expect(() => collectEventSchema.parse({ type: 'level_complete' })).toThrow();
+  it('rejects a missing required field (type)', () => {
+    expect(() => collectEventSchema.parse({ payload: { level: 3 } })).toThrow();
   });
 
-  it('rejects a wrong-typed required field (projectId as number)', () => {
-    expect(() => collectEventSchema.parse({ ...input, projectId: 123 })).toThrow();
+  it('rejects a wrong-typed required field (type as number)', () => {
+    expect(() => collectEventSchema.parse({ ...input, type: 123 })).toThrow();
   });
 
   it('rejects a wrong-typed occurredAt', () => {

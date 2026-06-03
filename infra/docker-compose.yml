@@ -120,8 +120,17 @@ services:
       NODE_ENV: production
       PORT: '3001'
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      # Ingest hot-path cache + the Project/Schema gRPC dependency (KAN-30).
+      REDIS_HOST: redis
+      REDIS_PORT: '6379'
+      PROJECT_SCHEMA_GRPC_URL: project-schema:50051
+      PROJECT_SCHEMA_CACHE_TTL_SECONDS: '30'
     depends_on:
       kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      project-schema:
         condition: service_healthy
     healthcheck:
       test:

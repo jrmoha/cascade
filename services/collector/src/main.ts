@@ -16,6 +16,9 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
+  // Close the Redis connection (and any other shutdown hooks) cleanly on exit.
+  app.enableShutdownHooks();
+
   const config = app.get<CollectorConfig>(APP_CONFIG);
   await app.listen(config.PORT);
   Logger.log(`Collector listening on http://localhost:${config.PORT}`, 'Bootstrap');

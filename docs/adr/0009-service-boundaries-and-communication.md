@@ -72,19 +72,20 @@ group, so adding the Aggregator never disturbs the Ingestion-Processor.
 
 ### 4. Sync-call inventory
 
-| Caller → Callee            | Purpose                                   | Transport | Status                                                |
-| -------------------------- | ----------------------------------------- | --------- | ----------------------------------------------------- |
-| Collector → Project/Schema | Validate API key / event schema at ingest | **gRPC**  | Contract + callee built (KAN-28/29); caller is KAN-30 |
+| Caller → Callee            | Purpose                                   | Transport | Status                                     |
+| -------------------------- | ----------------------------------------- | --------- | ------------------------------------------ |
+| Collector → Project/Schema | Validate API key / event schema at ingest | **gRPC**  | **Live** (callee KAN-28/29; caller KAN-30) |
 
-There are still **no** live synchronous service-to-service calls. The Collector validates events
-structurally against the shared contract in-process ([ADR-0005](0005-validate-at-collector-edge.md)).
-The Project/Schema **callee** now exists (KAN-28 / [ADR-0011](0011-project-schema-service.md)); as of
-KAN-29 the sync contract is defined as a typed **gRPC** service — `ProjectSchema.VerifyKey` /
-`GetEventSchema`, generated from `libs/contracts/proto/project_schema.proto`
-([ADR-0012](0012-inter-service-contract-versioning.md)) — served by the now-hybrid (HTTP + gRPC)
-Project/Schema service alongside its REST admin endpoints. The Collector-side **call** (with caching,
-on the ingest hot path) is wired in KAN-30. It qualifies as the one justified sync dependency because
-the Collector cannot decide accept/reject without an authoritative answer.
+This is now the **one live** synchronous service-to-service call. The Project/Schema **callee** exists
+(KAN-28 / [ADR-0011](0011-project-schema-service.md)) and, as of KAN-29, the sync contract is a typed
+**gRPC** service — `ProjectSchema.VerifyKey` / `GetEventSchema`, generated from
+`libs/contracts/proto/project_schema.proto` ([ADR-0012](0012-inter-service-contract-versioning.md)) —
+served by the hybrid (HTTP + gRPC) Project/Schema service alongside its REST admin endpoints. As of
+**KAN-30** the Collector makes the **call** on its ingest hot path: it authenticates the `x-api-key`
+header and validates each payload against the project's registered schema, **Redis-cached** and
+**fail-closed**, before producing to Kafka ([ADR-0013](0013-collector-ingest-auth-validation-caching.md)).
+It qualifies as the one justified sync dependency because the Collector cannot decide accept/reject
+without an authoritative answer. Beyond it, all cross-service communication remains async via Kafka.
 
 ### 5. Topic naming convention
 

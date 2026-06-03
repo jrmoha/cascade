@@ -13,20 +13,21 @@ ADRs follow the [MADR](https://adr.github.io/madr/) lightweight template:
 
 ## Index
 
-| #                                                    | Title                                                                                        | Status               |
-| ---------------------------------------------------- | -------------------------------------------------------------------------------------------- | -------------------- |
-| [0001](0001-overall-architecture.md)                 | Overall system architecture (CQRS + Kafka + Cassandra + microservices)                       | Accepted             |
-| [0002](0002-collector-kafka-production.md)           | Collector Kafka production strategy (transport, message key, eventId)                        | Accepted             |
-| [0003](0003-query-api-phase0-raw-read.md)            | Query API Phase-0 raw read-back from Cassandra (temporary)                                   | Superseded by [0008] |
-| [0004](0004-canonical-event-contract.md)             | Canonical event contract (Zod single-source envelope; event/ingest time)                     | Accepted             |
-| [0005](0005-validate-at-collector-edge.md)           | Validate at the Collector edge with the shared contract                                      | Accepted             |
-| [0006](0006-dead-letter-handling.md)                 | Dead-letter handling for failed events (DLQ + bounded retry)                                 | Accepted             |
-| [0007](0007-cassandra-raw-events-model.md)           | Cassandra `raw_events` query-first model (partition key, TTL, migrations)                    | Accepted             |
-| [0008](0008-raw-event-time-range-read.md)            | Bounded raw event-retrieval read (time-range `GET /query`, pagination)                       | Accepted             |
-| [0009](0009-service-boundaries-and-communication.md) | Service boundaries & communication strategy (topic + sync-call inventories)                  | Accepted             |
-| [0010](0010-independently-deployable-services.md)    | Independently deployable services (containers, Zod config, health probes)                    | Accepted             |
-| [0011](0011-project-schema-service.md)               | Project/Schema service (Postgres via Prisma, hashed API keys, JSON schemas)                  | Accepted             |
-| [0012](0012-inter-service-contract-versioning.md)    | Inter-service contracts & versioning (gRPC `.proto`, versioned Kafka schema, CI enforcement) | Accepted             |
+| #                                                        | Title                                                                                        | Status               |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------------- | -------------------- |
+| [0001](0001-overall-architecture.md)                     | Overall system architecture (CQRS + Kafka + Cassandra + microservices)                       | Accepted             |
+| [0002](0002-collector-kafka-production.md)               | Collector Kafka production strategy (transport, message key, eventId)                        | Accepted             |
+| [0003](0003-query-api-phase0-raw-read.md)                | Query API Phase-0 raw read-back from Cassandra (temporary)                                   | Superseded by [0008] |
+| [0004](0004-canonical-event-contract.md)                 | Canonical event contract (Zod single-source envelope; event/ingest time)                     | Accepted             |
+| [0005](0005-validate-at-collector-edge.md)               | Validate at the Collector edge with the shared contract                                      | Accepted             |
+| [0006](0006-dead-letter-handling.md)                     | Dead-letter handling for failed events (DLQ + bounded retry)                                 | Accepted             |
+| [0007](0007-cassandra-raw-events-model.md)               | Cassandra `raw_events` query-first model (partition key, TTL, migrations)                    | Accepted             |
+| [0008](0008-raw-event-time-range-read.md)                | Bounded raw event-retrieval read (time-range `GET /query`, pagination)                       | Accepted             |
+| [0009](0009-service-boundaries-and-communication.md)     | Service boundaries & communication strategy (topic + sync-call inventories)                  | Accepted             |
+| [0010](0010-independently-deployable-services.md)        | Independently deployable services (containers, Zod config, health probes)                    | Accepted             |
+| [0011](0011-project-schema-service.md)                   | Project/Schema service (Postgres via Prisma, hashed API keys, JSON schemas)                  | Accepted             |
+| [0012](0012-inter-service-contract-versioning.md)        | Inter-service contracts & versioning (gRPC `.proto`, versioned Kafka schema, CI enforcement) | Accepted             |
+| [0013](0013-collector-ingest-auth-validation-caching.md) | Collector ingest auth, per-project schema validation & caching (fail-closed, Redis)          | Accepted             |
 
 ## Creating a new ADR
 

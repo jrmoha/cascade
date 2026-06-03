@@ -9,22 +9,33 @@ import { NestFactory } from '@nestjs/core';
 import { Transport, type MicroserviceOptions } from '@nestjs/microservices';
 import { Test } from '@nestjs/testing';
 import { KafkaContainer, type StartedKafkaContainer } from '@testcontainers/kafka';
+import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { GenericContainer, Wait, type StartedTestContainer } from 'testcontainers';
 import { Kafka, type Admin } from 'kafkajs';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { RAW_EVENT_SCHEMA_VERSION, RAW_EVENTS_TOPIC, type RawEvent } from '@cascade/contracts';
+import {
+  PROJECT_SCHEMA_PROTO_PACKAGE,
+  PROJECT_SCHEMA_PROTO_PATH,
+  RAW_EVENT_SCHEMA_VERSION,
+  RAW_EVENTS_TOPIC,
+  type RawEvent,
+} from '@cascade/contracts';
 import { AppModule as CollectorAppModule } from '../../services/collector/src/app.module';
 import { AppModule as IngestionAppModule } from '../../services/ingestion-processor/src/app.module';
+import { AppModule as ProjectSchemaAppModule } from '../../services/project-schema/src/app.module';
 import { AppModule as QueryAppModule } from '../../services/query-api/src/app.module';
 
-// The walking-skeleton gate (KAN-20). Stands up real Kafka + Cassandra, boots
-// all three services in-process against them, POSTs an event to the Collector
-// and reads it back out of the Query API — proving the whole pipe end to end:
+// The walking-skeleton gate (KAN-20), extended for the Phase-2 ingest loop
+// (KAN-30). Stands up real Kafka + Cassandra + Postgres + Redis, boots all four
+// services in-process, authenticates with a real API key + a registered schema,
+// POSTs an event to the Collector and reads it back out of the Query API —
+// proving the whole pipe end to end:
 //
-//   POST /collect → Kafka(raw-events) → Ingestion-Processor → Cassandra → GET /query
+//   POST /collect (x-api-key) → [Project/Schema verify+validate, Redis-cached]
+//     → Kafka(raw-events) → Ingestion-Processor → Cassandra → GET /query
 //
-// No mocking of the broker or the DB, per CLAUDE.md. Set SKIP_INTEGRATION=1 to
+// No mocking of the broker or the DBs, per CLAUDE.md. Set SKIP_INTEGRATION=1 to
 // skip where Docker is unavailable.
 describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Walking-skeleton smoke (e2e)', () => {
   // The Ingestion-Processor's consumer groupId (matches its main.ts). NestJS's
@@ -33,21 +44,34 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Walking-skeleton smoke (e
   // `${INGESTION_GROUP_ID}-server`.
   const INGESTION_GROUP_ID = 'cascade-ingestion-processor';
   const INGESTION_BROKER_GROUP = `${INGESTION_GROUP_ID}-server`;
+  const PROJECT_SCHEMA_GRPC_ADDR = '127.0.0.1:50351';
 
   let kafka: StartedKafkaContainer;
   let cassandra: StartedTestContainer;
+  let postgres: StartedPostgreSqlContainer;
+  let redis: StartedTestContainer;
   let ingestion: INestMicroservice;
+  let projectSchema: INestApplication;
   let collector: INestApplication;
   let queryApi: INestApplication;
 
+  // Seeded in beforeAll: the authenticated project and its API key.
+  let projectId: string;
+  let apiKey: string;
+
   beforeAll(async () => {
-    // 1. Bring up the real infra the pipe runs on (in parallel — both are slow).
-    [kafka, cassandra] = await Promise.all([
+    // 1. Bring up the real infra the pipe runs on (in parallel — all are slow).
+    [kafka, cassandra, postgres, redis] = await Promise.all([
       new KafkaContainer('confluentinc/cp-kafka:7.5.0').withKraft().start(),
       new GenericContainer('cassandra:4.1')
         .withExposedPorts(9042)
         .withStartupTimeout(180_000)
         .withWaitStrategy(Wait.forLogMessage(/Starting listening for CQL clients/))
+        .start(),
+      new PostgreSqlContainer('postgres:16-alpine').start(),
+      new GenericContainer('redis:7.2-alpine')
+        .withExposedPorts(6379)
+        .withWaitStrategy(Wait.forLogMessage('Ready to accept connections'))
         .start(),
     ]);
 
@@ -64,6 +88,11 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Walking-skeleton smoke (e
     process.env.CASSANDRA_CONTACT_POINTS = cassandra.getHost();
     process.env.CASSANDRA_PORT = String(cassandra.getMappedPort(9042));
     process.env.CASSANDRA_LOCAL_DC = 'datacenter1';
+    process.env.DATABASE_URL = postgres.getConnectionUri();
+    process.env.GRPC_URL = PROJECT_SCHEMA_GRPC_ADDR;
+    process.env.REDIS_HOST = redis.getHost();
+    process.env.REDIS_PORT = String(redis.getMappedPort(6379));
+    process.env.PROJECT_SCHEMA_GRPC_URL = PROJECT_SCHEMA_GRPC_ADDR;
 
     // 3. Boot the Ingestion-Processor FIRST. It ensures the Cassandra schema on
     //    startup, and it must have joined the consumer group before we produce —
@@ -83,20 +112,42 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Walking-skeleton smoke (e
     // 4. Boot the Query API (reads the schema the processor just ensured).
     queryApi = await bootHttpApp(QueryAppModule);
 
-    // 5. Boot the Collector (Kafka producer onto raw-events).
+    // 5. Boot Project/Schema (hybrid HTTP + gRPC) and seed a project, an API key
+    //    and the event schema the Collector will authenticate + validate against.
+    projectSchema = await bootProjectSchema();
+    const psHttp = request(projectSchema.getHttpServer() as Server);
+    const project = await psHttp.post('/projects').send({ name: 'Smoke' }).expect(201);
+    projectId = project.body.id as string;
+    const issued = await psHttp.post(`/projects/${projectId}/keys`).expect(201);
+    apiKey = issued.body.key as string;
+    await psHttp
+      .post(`/projects/${projectId}/schemas`)
+      .send({
+        eventType: 'level_complete',
+        jsonSchema: {
+          type: 'object',
+          properties: { level: { type: 'integer' }, score: { type: 'integer' } },
+          required: ['level'],
+          additionalProperties: true,
+        },
+      })
+      .expect(201);
+
+    // 6. Boot the Collector (Kafka producer + the Project/Schema gRPC client).
     collector = await bootHttpApp(CollectorAppModule);
   });
 
   afterAll(async () => {
     await collector?.close();
+    await projectSchema?.close();
     await queryApi?.close();
     await ingestion?.close();
-    await Promise.all([kafka?.stop(), cassandra?.stop()]);
+    await Promise.all([kafka?.stop(), cassandra?.stop(), postgres?.stop(), redis?.stop()]);
   });
 
-  it('round-trips an event: POST /collect → Kafka → Cassandra → GET /query', async () => {
+  it('round-trips an event: POST /collect (authenticated) → Kafka → Cassandra → GET /query', async () => {
     const sent = {
-      projectId: 'game-1',
+      // No projectId in the body — it is derived from the API key (KAN-30).
       type: 'level_complete',
       // Explicit occurredAt (event time) so the read-back assertion is exact;
       // the Collector stamps receivedAt (ingest time) itself.
@@ -108,9 +159,11 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Walking-skeleton smoke (e
       source: 'unity-sdk@1.4.0',
     };
 
-    // Event in.
+    // Event in — authenticated with the seeded API key; the payload is validated
+    // against the registered `level_complete` schema before it reaches Kafka.
     const post = await request(collector.getHttpServer() as Server)
       .post('/collect')
+      .set('x-api-key', apiKey)
       .send(sent)
       .expect(202);
 
@@ -125,19 +178,19 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Walking-skeleton smoke (e
     const to = new Date(Date.now() + 60 * 1000).toISOString();
     const event = await waitFor(async () => {
       const res = await request(queryApi.getHttpServer() as Server)
-        .get(`/query?projectId=${sent.projectId}&from=${from}&to=${to}`)
+        .get(`/query?projectId=${projectId}&from=${from}&to=${to}`)
         .expect(200);
       return (res.body.events as RawEvent[]).find((e) => e.eventId === eventId);
     });
 
     // receivedAt is stamped by the Collector (ingest time), so assert it is a
     // valid ISO timestamp rather than a fixed value, then check the rest of the
-    // envelope round-tripped exactly.
+    // envelope round-tripped exactly. projectId is the authenticated project.
     const { receivedAt, ...rest } = event as RawEvent;
     expect(Number.isNaN(Date.parse(receivedAt))).toBe(false);
     expect(rest).toEqual({
       eventId,
-      projectId: sent.projectId,
+      projectId,
       schemaVersion: RAW_EVENT_SCHEMA_VERSION,
       type: sent.type,
       occurredAt: sent.occurredAt,
@@ -147,7 +200,34 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Walking-skeleton smoke (e
       source: sent.source,
     });
   });
+
+  it('rejects an unauthenticated request (no API key) with 401', async () => {
+    await request(collector.getHttpServer() as Server)
+      .post('/collect')
+      .send({ type: 'level_complete', payload: { level: 1 } })
+      .expect(401);
+  });
 });
+
+/** Boot the Project/Schema hybrid app (HTTP admin + gRPC) used by the Collector. */
+async function bootProjectSchema(): Promise<INestApplication> {
+  const moduleRef = await Test.createTestingModule({ imports: [ProjectSchemaAppModule] }).compile();
+  const app = moduleRef.createNestApplication();
+  app.useGlobalPipes(
+    new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+  );
+  app.connectMicroservice<MicroserviceOptions>({
+    transport: Transport.GRPC,
+    options: {
+      package: PROJECT_SCHEMA_PROTO_PACKAGE,
+      protoPath: PROJECT_SCHEMA_PROTO_PATH,
+      url: process.env.GRPC_URL,
+    },
+  });
+  await app.init(); // runs `prisma migrate deploy` + connects Prisma
+  await app.startAllMicroservices(); // bind the gRPC server
+  return app;
+}
 
 /** Boot a NestJS HTTP service in-process with the same global pipe as production. */
 async function bootHttpApp(module: NestType): Promise<INestApplication> {
