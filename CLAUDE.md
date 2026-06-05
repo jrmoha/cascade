@@ -21,7 +21,7 @@ Event-driven. Collector → **Kafka** → two independent consumers: Ingestion-P
 
 ## Stack & conventions
 
-- NestJS + TypeScript. Node 22+ (LTS). (Pin versions in package.json.)
+- NestJS 11 + TypeScript. Node 22+ (LTS). (Pin versions in package.json.) Postgres access in the Project/Schema service is **Prisma 7**, which has no embedded query engine — it runs through the `@prisma/adapter-pg` driver adapter, and the Migrate datasource URL lives in `services/project-schema/prisma.config.ts` (not `schema.prisma`). See ADR-0014.
 - Lint/format: ESLint + Prettier. Commits: Conventional Commits (Commitlint + Husky).
 - Tests: Vitest (unit), Testcontainers (integration against real Cassandra/Kafka/Postgres). Don't mock the database in integration tests. NestJS services need `unplugin-swc` in their `vitest.config.ts` so decorator metadata is emitted for DI (see `services/collector`). Gate Docker-dependent integration tests behind `SKIP_INTEGRATION=1`.
 - Monorepo: `services/`, `libs/` (shared contracts), `infra/` (Terraform + docker-compose), `docs/`. Each service is **independently deployable**: its own multi-stage `Dockerfile` (build context = repo root so `@cascade/contracts` resolves), added to `infra/docker-compose.yml` under the `apps` profile (`make up` = infra only; `make stack-up` = full stack). See ADR-0010.

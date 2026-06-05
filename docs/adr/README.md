@@ -28,6 +28,7 @@ ADRs follow the [MADR](https://adr.github.io/madr/) lightweight template:
 | [0011](0011-project-schema-service.md)                   | Project/Schema service (Postgres via Prisma, hashed API keys, JSON schemas)                  | Accepted             |
 | [0012](0012-inter-service-contract-versioning.md)        | Inter-service contracts & versioning (gRPC `.proto`, versioned Kafka schema, CI enforcement) | Accepted             |
 | [0013](0013-collector-ingest-auth-validation-caching.md) | Collector ingest auth, per-project schema validation & caching (fail-closed, Redis)          | Accepted             |
+| [0014](0014-nestjs-11-prisma-7-upgrade.md)               | Upgrade to NestJS 11 + Prisma 7 (Postgres via `@prisma/adapter-pg`, `prisma.config.ts`)      | Accepted             |
 
 ## Creating a new ADR
 
