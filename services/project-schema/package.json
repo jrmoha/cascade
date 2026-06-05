@@ -9,7 +9,7 @@
     "build": "prisma generate && tsc -b",
     "clean": "rm -rf dist tsconfig.tsbuildinfo",
     "start": "node dist/main.js",
-    "start:dev": "ts-node-dev --respawn --transpile-only src/main.ts",
+    "start:dev": "ts-node-dev --respawn --exit-child --transpile-only src/main.ts",
     "prisma:generate": "prisma generate",
     "migrate": "prisma migrate deploy",
     "migrate:dev": "prisma migrate dev",

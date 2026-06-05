@@ -9,7 +9,7 @@
     "build": "tsc -b",
     "clean": "rm -rf dist tsconfig.tsbuildinfo",
     "start": "node dist/main.js",
-    "start:dev": "ts-node-dev --respawn --transpile-only src/main.ts",
+    "start:dev": "ts-node-dev --respawn --exit-child --transpile-only src/main.ts",
     "migrate": "node dist/cassandra/migrate.js",
     "migrate:dev": "ts-node-dev --transpile-only src/cassandra/migrate.ts",
     "test": "vitest run",
