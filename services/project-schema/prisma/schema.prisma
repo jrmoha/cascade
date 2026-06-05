@@ -6,16 +6,18 @@
 
 generator client {
   provider = "prisma-client-js"
-  // Pin targets explicitly: "native" for local dev (macOS), and the Debian
-  // OpenSSL 3 engine for the node:22-slim runtime/builder image, so a query
-  // engine for the deploy target is always embedded regardless of where
-  // `prisma generate` runs.
-  binaryTargets = ["native", "debian-openssl-3.0.x"]
+  // Prisma 7 dropped the Rust query-engine binary: queries run through the WASM
+  // query compiler + a JS driver adapter (`@prisma/adapter-pg`, wired up in
+  // DatabaseService). There is no per-platform engine to embed, so `binaryTargets`
+  // is gone — the generated client is portable across local dev (macOS) and the
+  // node:22-slim runtime image alike. See ADR-0011.
 }
 
 datasource db {
+  // Prisma 7: the connection URL no longer lives here. Migrate reads it from
+  // `prisma.config.ts`; the runtime client gets it from the pg driver adapter
+  // in DatabaseService. See ADR-0011.
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 /// A registered project (tenant). Owns its API keys and event schemas.

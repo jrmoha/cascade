@@ -1,10 +1,24 @@
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
-import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnApplicationBootstrap,
+  OnModuleDestroy,
+} from '@nestjs/common';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
+import { APP_CONFIG } from '../config/config.module';
+import type { ProjectSchemaConfig } from '../config/env.schema';
 
-/** Absolute path to the committed Prisma schema (and its `migrations/` dir). */
-const SCHEMA_PATH = resolve(__dirname, '..', '..', 'prisma', 'schema.prisma');
+/**
+ * Absolute path to the Prisma 7 config file. It carries the Migrate datasource
+ * URL and schema/migrations paths; passing it explicitly (rather than relying on
+ * cwd auto-discovery) keeps `migrate deploy` correct regardless of where the
+ * process is launched from.
+ */
+const CONFIG_PATH = resolve(__dirname, '..', '..', 'prisma.config.ts');
 
 /**
  * Owns the Prisma client (the single Postgres connection pool). On bootstrap it
@@ -20,6 +34,13 @@ export class DatabaseService
   implements OnApplicationBootstrap, OnModuleDestroy
 {
   private readonly logger = new Logger(DatabaseService.name);
+
+  constructor(@Inject(APP_CONFIG) config: ProjectSchemaConfig) {
+    // Prisma 7 has no built-in query engine: the runtime client talks to
+    // Postgres through the `pg` driver adapter. The connection string is the
+    // same validated `DATABASE_URL` Migrate uses (via prisma.config.ts).
+    super({ adapter: new PrismaPg(config.DATABASE_URL) });
+  }
 
   async onApplicationBootstrap(): Promise<void> {
     this.deployMigrations(); // synchronous (execFileSync) — blocks until migrations are applied
@@ -39,7 +60,7 @@ export class DatabaseService
    */
   private deployMigrations(): void {
     this.logger.log('Applying database migrations…');
-    execFileSync('npx', ['--no-install', 'prisma', 'migrate', 'deploy', '--schema', SCHEMA_PATH], {
+    execFileSync('npx', ['--no-install', 'prisma', 'migrate', 'deploy', '--config', CONFIG_PATH], {
       stdio: 'inherit',
       env: process.env,
     });

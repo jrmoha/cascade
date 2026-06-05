@@ -55,44 +55,55 @@ fails CI (the JSON-Schema contract snapshot + `tsc --build`) before it can ship 
 
 ## Input to `POST /collect`
 
+**Authentication (KAN-30).** The request must carry the project's API key in an **`x-api-key`**
+header. The Collector resolves the owning `projectId` from the key (via Project/Schema, Redis-cached)
+and uses **that** as the event's project — a key can only ever write to its own project. A
+missing/unknown/revoked key is a `401`; if Project/Schema is unreachable and the key isn't cached the
+request fails closed with `503`. See [ADR-0013](../adr/0013-collector-ingest-auth-validation-caching.md).
+
 The request body is validated at the edge (KAN-22) against `collectEventSchema`, which is
-**derived from `rawEventSchema`** (`rawEventSchema.omit({ eventId, receivedAt, schemaVersion }).partial({ occurredAt }).strip()`)
+**derived from `rawEventSchema`** (`rawEventSchema.omit({ eventId, receivedAt, schemaVersion, projectId }).partial({ occurredAt }).strip()`)
 — not a re-implemented copy, so the gate and the canonical contract can never diverge. Bad data
 is rejected here and never reaches the `raw-events` topic. Clients never supply `eventId`
-(server-generated), `receivedAt` (ingest time), or `schemaVersion` (server-stamped); `occurredAt`,
-`payload`, and the optional fields may be omitted:
+(server-generated), `receivedAt` (ingest time), `schemaVersion` (server-stamped), or **`projectId`**
+(derived from the API key); `occurredAt`, `payload`, and the optional fields may be omitted:
 
 ```jsonc
+// POST /collect   header: x-api-key: cas_a1b2c3d4.Xy9…
 {
-  "projectId": "game-1", // required, non-empty
   "type": "level_complete", // required, non-empty
   "occurredAt": "2026-05-30T15:16:50.165Z", // optional ISO-8601 event time
-  "payload": { "level": 3 }, // optional object
+  "payload": { "level": 3 }, // optional object — validated per-project (below)
   "sessionId": "sess-9", // optional
   "actorId": "player-42", // optional
   "source": "unity-sdk@1.4.0", // optional
 }
 ```
 
-- **Keys the client does not own are stripped, not rejected.** A client-supplied `receivedAt` or
-  `eventId` (or any unknown field) is silently ignored; `receivedAt` is always re-stamped
-  server-side at acceptance.
-- **A missing or wrong-typed required field returns `400`** with a structured body listing each
-  failing field and why:
+- **Keys the client does not own are stripped, not rejected.** A client-supplied `projectId`,
+  `receivedAt` or `eventId` (or any unknown field) is silently ignored; `projectId` comes from the
+  key and `receivedAt` is always re-stamped server-side at acceptance.
+- **Per-project payload validation (KAN-30).** After the envelope passes, the `payload` is validated
+  against the project's registered JSON Schema for this `type` (fetched from Project/Schema,
+  Redis-cached, compiled once with Ajv). An **unregistered** type returns `422`; a payload that
+  violates the schema returns `400`.
+- **A missing/wrong-typed envelope field, or a schema violation, returns a structured body** listing
+  each failing field and why:
 
   ```jsonc
   {
     "statusCode": 400,
     "error": "Bad Request",
     "message": "Event validation failed",
-    "errors": [{ "field": "projectId", "reason": "Required" }],
+    "errors": [{ "field": "type", "reason": "Required" }],
   }
   ```
 
 - A valid event returns `202 Accepted` with the server-stamped `eventId`.
 
-This is synchronous, edge-level rejection. Downstream processing failures are a separate concern
-(the dead-letter flow, KAN-23).
+The check order is cheapest-and-most-decisive first: **API key (`401`) → envelope (`400`) →
+per-project schema (`422`/`400`)**. This is synchronous, edge-level rejection. Downstream processing
+failures are a separate concern (the dead-letter flow, KAN-23).
 
 ## Example message on `raw-events`
 

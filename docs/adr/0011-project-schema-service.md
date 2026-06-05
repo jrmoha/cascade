@@ -1,6 +1,9 @@
 # 0011 — Project/Schema service: Postgres via Prisma, hashed API keys, JSON-Schema event schemas
 
-**Status:** Accepted
+**Status:** Accepted (§1 amended by [ADR-0014](0014-nestjs-11-prisma-7-upgrade.md): under Prisma 7
+the runtime client connects through the `@prisma/adapter-pg` driver adapter and the Migrate
+datasource URL lives in `prisma.config.ts`, not `schema.prisma` — Prisma remains fenced to
+persistence.)
 
 ## Context
 

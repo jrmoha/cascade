@@ -28,9 +28,12 @@ COPY --from=builder /app/libs/contracts/dist ./libs/contracts/dist
 COPY --from=builder /app/libs/contracts/proto ./libs/contracts/proto
 COPY --from=builder /app/services/project-schema/package.json ./services/project-schema/package.json
 COPY --from=builder /app/services/project-schema/dist ./services/project-schema/dist
-# Ship the Prisma schema + migrations: the service applies `migrate deploy` on
-# boot, and they back `npm run migrate` too. `prisma` is a runtime dependency
-# (kept past the prune) so the migrate CLI is available in the container.
+# Ship the Prisma schema + migrations and the Prisma 7 config: the service
+# applies `migrate deploy --config prisma.config.ts` on boot (it carries the
+# Migrate datasource URL + schema/migrations paths), and they back
+# `npm run migrate` too. `prisma` is a runtime dependency (kept past the prune)
+# so the migrate CLI is available in the container.
 COPY --from=builder /app/services/project-schema/prisma ./services/project-schema/prisma
+COPY --from=builder /app/services/project-schema/prisma.config.ts ./services/project-schema/prisma.config.ts
 USER node
 CMD ["node", "services/project-schema/dist/main.js"]

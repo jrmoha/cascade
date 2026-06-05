@@ -116,9 +116,11 @@ reuse or renumber; add fields/RPCs additively (ADR-0012).
 
 ## Phase notes
 
-KAN-28 built the service and its operations; KAN-29 added the typed gRPC sync contract (above). The
-**Collector → Project/Schema** _call_ itself (per-request key verification + schema fetch, with
-caching) is KAN-30 — the single justified synchronous dependency recorded in
-[ADR-0009](../adr/0009-service-boundaries-and-communication.md).
-Storing schemas as JSON Schema in jsonb is what lets the Collector validate a project's events
-dynamically then, with no redeploy when a new event type is added.
+KAN-28 built the service and its operations; KAN-29 added the typed gRPC sync contract (above);
+**KAN-30 wired the caller** — the Collector now makes the `VerifyKey` / `GetEventSchema` calls on its
+ingest hot path (per-request key verification + schema fetch, **Redis-cached** and **fail-closed**),
+the single justified synchronous dependency recorded in
+[ADR-0009](../adr/0009-service-boundaries-and-communication.md) §4 and detailed in
+[ADR-0013](../adr/0013-collector-ingest-auth-validation-caching.md). Storing schemas as JSON Schema in
+jsonb is what lets the Collector validate a project's events dynamically, with no redeploy when a new
+event type is added.

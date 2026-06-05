@@ -3,12 +3,14 @@ import { ClientsModule, Transport } from '@nestjs/microservices';
 import { Partitioners } from 'kafkajs';
 import { APP_CONFIG } from '../config/config.module';
 import type { CollectorConfig } from '../config/env.schema';
+import { IngestModule } from '../ingest/ingest.module';
 import { CollectController } from './collect.controller';
 import { CollectorService } from './collector.service';
 import { KAFKA_PRODUCER } from './kafka.tokens';
 
 @Module({
   imports: [
+    IngestModule,
     ClientsModule.registerAsync([
       {
         name: KAFKA_PRODUCER,

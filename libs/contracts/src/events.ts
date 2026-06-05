@@ -97,18 +97,21 @@ export type RawEvent = z.infer<typeof rawEventSchema>;
  * the one canonical contract rather than a re-implemented copy (KAN-22).
  *
  * Differences from the full envelope:
- * - `eventId`, `receivedAt` and `schemaVersion` are omitted — they are stamped
- *   server-side. The schema `.strip()`s unknown keys, so a client that sends
- *   them (or any other stray field) has them silently ignored and re-stamped,
- *   rather than rejected.
+ * - `eventId`, `receivedAt`, `schemaVersion` and `projectId` are omitted — they
+ *   are stamped server-side. `projectId` is **derived from the API key** the
+ *   Collector authenticates (KAN-30): a key can only ever write to its own
+ *   project, so the client never supplies it. The schema `.strip()`s unknown
+ *   keys, so a client that sends `projectId` (or any other stray field) has it
+ *   silently ignored, rather than rejected — keeping this change backward-
+ *   tolerant for older clients.
  * - `occurredAt` is optional — the Collector defaults it to `receivedAt` when
  *   the client omits it. (`payload` is already optional via its default.)
  *
- * Missing or wrong-typed *required* fields (`projectId`, `type`) still fail
- * validation, so bad data never reaches the `raw-events` topic.
+ * A missing or wrong-typed required `type` still fails validation, so bad data
+ * never reaches the `raw-events` topic.
  */
 export const collectEventSchema = rawEventSchema
-  .omit({ eventId: true, receivedAt: true, schemaVersion: true })
+  .omit({ eventId: true, receivedAt: true, schemaVersion: true, projectId: true })
   .partial({ occurredAt: true })
   .strip();
 
