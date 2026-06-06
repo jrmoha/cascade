@@ -241,6 +241,50 @@ services:
       retries: 5
       start_period: 30s
 
+  # Aggregator — second, independent consumer of `raw-events` (ADR-0009/ADR-0015).
+  # Phase 1 skeleton (KAN-31): consumes + dead-letters, derives no read models yet.
+  # Owns its own tables in the shared Postgres (raw `pg`, separate from
+  # Project/Schema's Prisma-managed schema — ADR-0011/ADR-0015).
+  aggregator:
+    build:
+      context: ..
+      dockerfile: services/aggregator/Dockerfile
+    container_name: cascade-aggregator
+    profiles: ['apps']
+    ports:
+      - '3005:3005'
+    environment:
+      NODE_ENV: production
+      PORT: '3005'
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      CASSANDRA_CONTACT_POINTS: cassandra
+      CASSANDRA_PORT: '9042'
+      CASSANDRA_LOCAL_DC: datacenter1
+      REDIS_HOST: redis
+      REDIS_PORT: '6379'
+      DATABASE_URL: postgresql://cascade:cascade@postgres:5432/cascade
+    depends_on:
+      kafka:
+        condition: service_healthy
+      cassandra:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('http').get('http://localhost:3005/health',(r)=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
 volumes:
   cassandra-data:
   postgres-data:

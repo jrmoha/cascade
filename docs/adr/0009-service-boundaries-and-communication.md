@@ -15,10 +15,12 @@ This ADR records those boundaries. It does **not** re-argue CQRS, Kafka, or the 
 — see ADR-0001 for that rationale. It is a decision record, not a design doc; the
 [blueprint](../blueprint.md) and [charter](../00-charter.md) hold the detail.
 
-Five services are in scope. Four exist in code today (**Collector**, **Ingestion-Processor**,
+Five services are in scope. Four exist in full today (**Collector**, **Ingestion-Processor**,
 **Query API**, and **Project/Schema** as of KAN-28 — see
-[ADR-0011](0011-project-schema-service.md)); the **Aggregator** is _planned_ and marked as such
-below. The boundaries are stated now so the planned services drop into an already-agreed topology.
+[ADR-0011](0011-project-schema-service.md)); the **Aggregator** exists as a **consumer skeleton** as
+of KAN-31 ([ADR-0015](0015-read-model-aggregation-strategy.md)) — it consumes `raw-events` and
+dead-letters, but derives no read models yet. The boundaries below hold for the skeleton and the
+views that fill it in.
 
 ## Decision
 
@@ -27,17 +29,25 @@ below. The boundaries are stated now so the planned services drop into an alread
 Each service has **exactly one** primary responsibility and a set of stores it must not touch. A
 service is the owner — and the only writer — of its store.
 
-| Service                    | Single responsibility                                                           | Must not own / touch                 |
-| -------------------------- | ------------------------------------------------------------------------------- | ------------------------------------ |
-| **Collector**              | Validate events at the HTTP edge and produce them to Kafka                      | Any database                         |
-| **Ingestion-Processor**    | Consume `raw-events` and persist them to Cassandra `raw_events` (append-only)   | Redis, PostgreSQL                    |
-| **Aggregator** _(planned)_ | Consume `raw-events` and derive read models (counters/funnels/retention/boards) | Cassandra, the write path            |
-| **Query API**              | Serve queries from read models (Redis/PostgreSQL); never aggregates over raw    | Kafka; raw Cassandra for aggregation |
-| **Project/Schema**         | Own project metadata, schemas, and API keys in PostgreSQL                       | Kafka, Cassandra, Redis              |
+| Service                     | Single responsibility                                                           | Must not own / touch                 |
+| --------------------------- | ------------------------------------------------------------------------------- | ------------------------------------ |
+| **Collector**               | Validate events at the HTTP edge and produce them to Kafka                      | Any database                         |
+| **Ingestion-Processor**     | Consume `raw-events` and persist them to Cassandra `raw_events` (append-only)   | Redis, PostgreSQL                    |
+| **Aggregator** _(skeleton)_ | Consume `raw-events` and derive read models (counters/funnels/retention/boards) | The raw write path (`raw_events`)    |
+| **Query API**               | Serve queries from read models (Redis/PostgreSQL); never aggregates over raw    | Kafka; raw Cassandra for aggregation |
+| **Project/Schema**          | Own project metadata, schemas, and API keys in PostgreSQL                       | Kafka, Cassandra, Redis              |
 
 Note on the Query API: per [ADR-0008](0008-raw-event-time-range-read.md) it may perform a **bounded,
 partition-key-bounded raw _retrieval_** (`GET /query?projectId=&from=&to=`) for replay/audit, but it
 **never aggregates** over raw Cassandra — analytics come exclusively from Aggregator read models.
+
+Note on the Aggregator: [ADR-0015](0015-read-model-aggregation-strategy.md) refines its store rule.
+It writes read models to **all three** stores — time-series counters to **Cassandra** (its own
+_aggregate_ tables), leaderboards to **Redis**, funnel/retention summaries to **Postgres** (its own
+tables, raw `pg`, separate from Project/Schema's Prisma schema). The invariant it must not cross is
+the **raw write path**: it never reads or writes `raw_events`, and never aggregates over raw. This
+broadens [ADR-0001](0001-overall-architecture.md)'s "Aggregator must not touch Cassandra" to "must
+not touch the raw write path" — Aggregator-owned aggregate tables are fine.
 
 **Boundary litmus test.** If two candidate services must always deploy together, or must share a
 database table, they are not two services — they are one. Conversely, a single service that owns two
@@ -60,10 +70,10 @@ ADR; "it was easier" is not one. Async fan-out is never modelled as a chain of s
 Topic names are defined once in `@cascade/contracts` (`libs/contracts/src/events.ts`) and imported
 everywhere — never re-typed as string literals.
 
-| Topic            | Producer            | Consumer(s)                                           | Partition key |
-| ---------------- | ------------------- | ----------------------------------------------------- | ------------- |
-| `raw-events`     | Collector           | Ingestion-Processor; Aggregator _(planned)_           | `projectId`   |
-| `raw-events.dlq` | Ingestion-Processor | Ad-hoc (inspection/replay tooling — no live consumer) | `projectId`   |
+| Topic            | Producer                        | Consumer(s)                                           | Partition key |
+| ---------------- | ------------------------------- | ----------------------------------------------------- | ------------- |
+| `raw-events`     | Collector                       | Ingestion-Processor; Aggregator _(skeleton)_          | `projectId`   |
+| `raw-events.dlq` | Ingestion-Processor, Aggregator | Ad-hoc (inspection/replay tooling — no live consumer) | `projectId`   |
 
 `projectId` as the partition key keeps a project's events ordered on one partition and co-locates
 them for downstream processing (see [ADR-0002](0002-collector-kafka-production.md)). Dead-lettering

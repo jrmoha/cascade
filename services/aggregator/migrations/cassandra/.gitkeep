@@ -1,0 +1,7 @@
+# Cassandra migrations for the Aggregator's time-series counter read models
+
+# (ADR-0015). Ordered `NNNN_name.cql` files, applied once each by the Migrator
+
+# (src/cassandra/migrator.ts) on boot and via `npm run migrate`. Empty in the
+
+# Phase 1 skeleton (KAN-31) — the counts view and its table are a follow-up
