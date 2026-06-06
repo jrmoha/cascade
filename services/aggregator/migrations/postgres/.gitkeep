@@ -1,0 +1,5 @@
+# Postgres migrations for the Aggregator's funnel/retention summary read models
+# (ADR-0015). Ordered `NNNN_name.sql` files, applied once each by the PgMigrator
+# (src/postgres/pg-migrator.ts) on boot. Raw `pg`, Aggregator-owned tables —
+# Prisma stays fenced to the Project/Schema service (ADR-0011). Empty in the
+# Phase 1 skeleton (KAN-31) — the funnel/retention tables are a follow-up.
