@@ -1,28 +1,27 @@
 import { Injectable } from '@nestjs/common';
-import { HealthCheckError, HealthIndicator, type HealthIndicatorResult } from '@nestjs/terminus';
+import { HealthIndicatorService, type HealthIndicatorResult } from '@nestjs/terminus';
 import { CassandraService } from '../cassandra/cassandra.service';
 
 /**
  * Readiness indicator for Cassandra: issues a trivial, single-node query
  * (`SELECT now() FROM system.local`) through the existing client. It verifies
  * the driver has a live connection to the cluster without touching application
- * data. Throws (→ 503) when the cluster is unreachable.
+ * data. Reports `down` (→ 503) when the cluster is unreachable.
  */
 @Injectable()
-export class CassandraHealthIndicator extends HealthIndicator {
-  constructor(private readonly cassandra: CassandraService) {
-    super();
-  }
+export class CassandraHealthIndicator {
+  constructor(
+    private readonly cassandra: CassandraService,
+    private readonly healthIndicator: HealthIndicatorService,
+  ) {}
 
   async isHealthy(key: string): Promise<HealthIndicatorResult> {
+    const indicator = this.healthIndicator.check(key);
     try {
       await this.cassandra.execute('SELECT now() FROM system.local');
-      return this.getStatus(key, true);
+      return indicator.up();
     } catch (err) {
-      throw new HealthCheckError(
-        'Cassandra check failed',
-        this.getStatus(key, false, { message: (err as Error).message }),
-      );
+      return indicator.down({ message: (err as Error).message });
     }
   }
 }

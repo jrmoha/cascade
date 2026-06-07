@@ -41,6 +41,14 @@ export const aggregatorEnvSchema = cassandraEnvSchema.extend({
   REDIS_HOST: z.string().min(1),
   REDIS_PORT: z.coerce.number().int().positive(),
   DATABASE_URL: z.string().url(),
+  /**
+   * Lateness horizon for the per-`eventId` dedup guard that keeps the additive
+   * event counters replay-safe (ADR-0015 §4): a redelivery seen within this TTL
+   * is a no-op. Required (no inline default) — it is a correctness/retention
+   * knob, bounded above by the raw-events 30-day TTL (ADR-0007). See
+   * {@link DedupStore}.
+   */
+  AGGREGATOR_DEDUP_TTL_SECONDS: z.coerce.number().int().positive(),
 });
 
 export type CassandraEnv = z.infer<typeof cassandraEnvSchema>;

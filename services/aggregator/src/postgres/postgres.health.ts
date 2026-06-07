@@ -1,27 +1,27 @@
 import { Injectable } from '@nestjs/common';
-import { HealthCheckError, HealthIndicator, type HealthIndicatorResult } from '@nestjs/terminus';
+import { HealthIndicatorService, type HealthIndicatorResult } from '@nestjs/terminus';
 import { PostgresService } from './postgres.service';
 
 /**
  * Readiness indicator for Postgres: a trivial `SELECT 1` through the pool. The
  * Aggregator's funnel/retention summaries live here (ADR-0015), so if it is
- * unreachable `GET /ready` returns 503 and the service is pulled from rotation.
+ * unreachable `GET /ready` reports `down` (→ 503) and the service is pulled from
+ * rotation.
  */
 @Injectable()
-export class PostgresHealthIndicator extends HealthIndicator {
-  constructor(private readonly postgres: PostgresService) {
-    super();
-  }
+export class PostgresHealthIndicator {
+  constructor(
+    private readonly postgres: PostgresService,
+    private readonly healthIndicator: HealthIndicatorService,
+  ) {}
 
   async isHealthy(key: string): Promise<HealthIndicatorResult> {
+    const indicator = this.healthIndicator.check(key);
     try {
       await this.postgres.query('SELECT 1');
-      return this.getStatus(key, true);
+      return indicator.up();
     } catch (err) {
-      throw new HealthCheckError(
-        'Postgres check failed',
-        this.getStatus(key, false, { message: (err as Error).message }),
-      );
+      return indicator.down({ message: (err as Error).message });
     }
   }
 }

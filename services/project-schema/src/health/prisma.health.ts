@@ -1,27 +1,26 @@
 import { Injectable } from '@nestjs/common';
-import { HealthCheckError, HealthIndicator, type HealthIndicatorResult } from '@nestjs/terminus';
+import { HealthIndicatorService, type HealthIndicatorResult } from '@nestjs/terminus';
 import { DatabaseService } from '../db/database.service';
 
 /**
  * Readiness indicator for Postgres: a trivial `SELECT 1` over the Prisma client.
- * If the database is unreachable the check throws, so `GET /ready` returns 503
- * and the service is pulled from rotation.
+ * If the database is unreachable the check reports `down`, so `GET /ready`
+ * returns 503 and the service is pulled from rotation.
  */
 @Injectable()
-export class PrismaHealthIndicator extends HealthIndicator {
-  constructor(private readonly db: DatabaseService) {
-    super();
-  }
+export class PrismaHealthIndicator {
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly healthIndicator: HealthIndicatorService,
+  ) {}
 
   async isHealthy(key: string): Promise<HealthIndicatorResult> {
+    const indicator = this.healthIndicator.check(key);
     try {
       await this.db.$queryRaw`SELECT 1`;
-      return this.getStatus(key, true);
+      return indicator.up();
     } catch (err) {
-      throw new HealthCheckError(
-        'Postgres check failed',
-        this.getStatus(key, false, { message: (err as Error).message }),
-      );
+      return indicator.down({ message: (err as Error).message });
     }
   }
 }

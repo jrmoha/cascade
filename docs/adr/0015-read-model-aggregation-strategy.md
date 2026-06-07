@@ -159,3 +159,11 @@ bounded retry ([ADR-0006](0006-dead-letter-handling.md)).
   tables are kept separate from Project/Schema's Prisma-managed ones, by convention not by enforcement.
 - A correct rebuild requires the log to still hold the needed history (bounded by the raw-events 30-day
   TTL); older history is gone once the buffer rolls.
+
+## Implementation
+
+The first view realizing this strategy is **event counts** (KAN-32): per-minute and per-hour Cassandra
+`counter` tables, windowed on `occurredAt`, made replay-safe by a per-`eventId` Redis dedup gate before
+each increment. See [`docs/read-models/event-counts.md`](../read-models/event-counts.md). Leaderboards,
+funnels, and retention are follow-up tickets that reuse the same consumer, windowing, and idempotency
+machinery.
