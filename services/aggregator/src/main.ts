@@ -29,6 +29,17 @@ async function bootstrap(): Promise<void> {
       producer: {
         createPartitioner: Partitioners.DefaultPartitioner,
       },
+      // Commit-after-durable-write (ADR-0016). ServerKafka consumes via KafkaJS
+      // `eachMessage`, which resolves a message's offset only **after** the handler
+      // returns; the handler `await`s the durable counter write before returning, so
+      // an offset is never committed for an event that has not been materialised. A
+      // crash mid-handler leaves the offset uncommitted → Kafka redelivers it
+      // (at-least-once), and the per-`eventId` dedup gate makes that redelivery a
+      // no-op. Set explicitly (it is also the KafkaJS default) so the guarantee is
+      // visible in code, not implicit.
+      run: {
+        autoCommit: true,
+      },
     },
   });
 

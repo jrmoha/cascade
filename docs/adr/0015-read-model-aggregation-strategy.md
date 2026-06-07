@@ -101,6 +101,10 @@ additive updates (a counter `+1`, a Redis `ZINCRBY`) would double-count, which
   Redis, Postgres) are **external**, so EOS would not cover them and app-level idempotency would still
   be required. The dedup approach is simpler and actually covers the sinks we have.
 
+> The concrete dedup gate, the offset-commit guarantee, the accepted residual crash edge, and the
+> executable proof of these properties are pinned down in
+> [ADR-0016](0016-idempotent-replayable-aggregation.md) (the keystone).
+
 ### 5. Rebuildability: replay `raw-events` from offset 0
 
 The log is the source of truth; every read model is a **pure, deterministic function of the events**.
@@ -109,7 +113,8 @@ clean view tables. Determinism holds because views key off event time and the st
 replay reproduces them exactly. The procedure: truncate the target view store(s) → run the Aggregator
 as a **rebuild consumer** (a fresh consumer group, or offsets reset to earliest) → let it catch up. This
 is the payoff of CQRS-over-a-log: adding a new analytic is "design the view, replay", not a backfill
-migration.
+migration. The rebuild must also **flush the dedup state** so the replay dedups against itself rather
+than the original pass's expired markers ([ADR-0016](0016-idempotent-replayable-aggregation.md) §3).
 
 ### 6. The Aggregator is a second, independent consumer
 
