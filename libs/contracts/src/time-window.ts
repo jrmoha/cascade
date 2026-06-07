@@ -25,6 +25,21 @@ export function toHourlyBucket(iso: string | undefined): string {
 }
 
 /**
+ * Map an ISO-8601 timestamp to its minute bucket in UTC, formatted as
+ * 'YYYY-MM-DDTHH:MM'. This is the `time_bucket` of the Aggregator's
+ * per-minute event-counts table (ADR-0015); the hourly counterpart is
+ * {@link toHourlyBucket}. Like the hourly helper it buckets by event time
+ * (`occurredAt`), so a late/out-of-order event lands in the minute for **when
+ * it happened**, and falls back to the current minute for missing/unparseable
+ * input so an event is never silently dropped.
+ */
+export function toMinuteBucket(iso: string | undefined): string {
+  const date = iso ? new Date(iso) : new Date();
+  const valid = Number.isNaN(date.getTime()) ? new Date() : date;
+  return valid.toISOString().slice(0, 16); // 'YYYY-MM-DDTHH:MM'
+}
+
+/**
  * The maximum number of hourly buckets a single time-range read may span
  * (168 = 7 days). Each bucket is one `(project_id, time_bucket)` partition the
  * Query API reads with a prepared single-partition SELECT, so this caps the

@@ -9,6 +9,7 @@ const base = {
   REDIS_HOST: 'localhost',
   REDIS_PORT: '6379',
   DATABASE_URL: 'postgresql://cascade:cascade@localhost:5432/cascade',
+  AGGREGATOR_DEDUP_TTL_SECONDS: '86400',
 };
 
 describe('aggregatorEnvSchema', () => {
@@ -19,6 +20,7 @@ describe('aggregatorEnvSchema', () => {
     expect(cfg.CASSANDRA_CONTACT_POINTS).toEqual(['localhost']);
     expect(cfg.CASSANDRA_PORT).toBe(9042);
     expect(cfg.REDIS_PORT).toBe(6379);
+    expect(cfg.AGGREGATOR_DEDUP_TTL_SECONDS).toBe(86400);
   });
 
   it('splits a comma-separated broker/contact-point list and trims blanks', () => {
@@ -37,5 +39,17 @@ describe('aggregatorEnvSchema', () => {
 
   it('rejects a non-URL DATABASE_URL', () => {
     expect(() => aggregatorEnvSchema.parse({ ...base, DATABASE_URL: 'not-a-url' })).toThrow();
+  });
+
+  it('requires AGGREGATOR_DEDUP_TTL_SECONDS to be a positive integer', () => {
+    const withoutTtl: Partial<typeof base> = { ...base };
+    delete withoutTtl.AGGREGATOR_DEDUP_TTL_SECONDS;
+    expect(() => aggregatorEnvSchema.parse(withoutTtl)).toThrow();
+    expect(() =>
+      aggregatorEnvSchema.parse({ ...base, AGGREGATOR_DEDUP_TTL_SECONDS: '0' }),
+    ).toThrow();
+    expect(() =>
+      aggregatorEnvSchema.parse({ ...base, AGGREGATOR_DEDUP_TTL_SECONDS: '-5' }),
+    ).toThrow();
   });
 });

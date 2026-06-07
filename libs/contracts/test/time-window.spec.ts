@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { hourlyBucketRange, toHourlyBucket } from '../src/time-window';
+import { hourlyBucketRange, toHourlyBucket, toMinuteBucket } from '../src/time-window';
 
 describe('toHourlyBucket', () => {
   afterEach(() => vi.useRealTimers());
@@ -24,6 +24,32 @@ describe('toHourlyBucket', () => {
     vi.setSystemTime(new Date('2026-01-02T09:45:00.000Z'));
     expect(toHourlyBucket(undefined)).toBe('2026-01-02T09');
     expect(toHourlyBucket('not-a-date')).toBe('2026-01-02T09');
+  });
+});
+
+describe('toMinuteBucket', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('truncates an ISO timestamp to the UTC minute', () => {
+    expect(toMinuteBucket('2026-05-30T15:16:50.165Z')).toBe('2026-05-30T15:16');
+  });
+
+  it('normalizes a non-UTC offset to UTC before bucketing', () => {
+    // 2026-05-30T01:30:45+03:00 === 2026-05-29T22:30:45Z -> minute 22:30 on the 29th
+    expect(toMinuteBucket('2026-05-30T01:30:45.000+03:00')).toBe('2026-05-29T22:30');
+  });
+
+  it('keeps events in the same bucket within the minute and splits across the boundary', () => {
+    expect(toMinuteBucket('2026-05-30T15:16:00.000Z')).toBe('2026-05-30T15:16');
+    expect(toMinuteBucket('2026-05-30T15:16:59.999Z')).toBe('2026-05-30T15:16');
+    expect(toMinuteBucket('2026-05-30T15:17:00.000Z')).toBe('2026-05-30T15:17');
+  });
+
+  it('falls back to the current minute for missing or unparseable input', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-02T09:45:30.000Z'));
+    expect(toMinuteBucket(undefined)).toBe('2026-01-02T09:45');
+    expect(toMinuteBucket('not-a-date')).toBe('2026-01-02T09:45');
   });
 });
 

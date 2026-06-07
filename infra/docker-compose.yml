@@ -262,6 +262,7 @@ services:
       CASSANDRA_LOCAL_DC: datacenter1
       REDIS_HOST: redis
       REDIS_PORT: '6379'
+      AGGREGATOR_DEDUP_TTL_SECONDS: '86400'
       DATABASE_URL: postgresql://cascade:cascade@postgres:5432/cascade
     depends_on:
       kafka:

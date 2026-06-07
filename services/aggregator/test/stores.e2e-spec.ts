@@ -1,6 +1,7 @@
 import { GenericContainer, type StartedTestContainer, Wait } from 'testcontainers';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import Redis from 'ioredis';
+import { HealthIndicatorService } from '@nestjs/terminus';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { AggregatorConfig } from '../src/config/env.schema';
 import { CassandraService, KEYSPACE } from '../src/cassandra/cassandra.service';
@@ -47,6 +48,7 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Aggregator stores (integr
       REDIS_PORT: redisContainer.getMappedPort(6379),
       DATABASE_URL: postgresContainer.getConnectionUri(),
       KAFKA_BOOTSTRAP_SERVERS: ['localhost:9092'],
+      AGGREGATOR_DEDUP_TTL_SECONDS: 86400,
       PORT: 3005,
     } satisfies AggregatorConfig;
 
@@ -76,10 +78,11 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Aggregator stores (integr
     ]);
   });
 
-  it('Cassandra migrator bootstraps the keyspace and a namespaced tracking table', async () => {
+  it('Cassandra migrator bootstraps the keyspace and records applied migrations', async () => {
     const rs = await cassandra.execute(`SELECT id FROM ${KEYSPACE}.aggregator_schema_migrations`);
-    // Empty migrations/cassandra dir → no rows, but the table exists (query succeeds).
-    expect(rs.rows).toHaveLength(0);
+    const ids = rs.rows.map((r) => r.get('id') as string);
+    // The event-counts counter tables migration (KAN-32) is applied and tracked.
+    expect(ids).toContain('0001_create_event_counts');
   });
 
   it('Postgres migrator bootstraps its own tracking table (separate from Prisma)', async () => {
@@ -90,9 +93,10 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Aggregator stores (integr
   });
 
   it('reports all three stores healthy via the readiness indicators', async () => {
-    const cassandraHealth = new CassandraHealthIndicator(cassandra);
-    const postgresHealth = new PostgresHealthIndicator(postgres);
-    const redisHealth = new RedisHealthIndicator(redis);
+    const hi = new HealthIndicatorService();
+    const cassandraHealth = new CassandraHealthIndicator(cassandra, hi);
+    const postgresHealth = new PostgresHealthIndicator(postgres, hi);
+    const redisHealth = new RedisHealthIndicator(redis, hi);
 
     await expect(cassandraHealth.isHealthy('cassandra')).resolves.toMatchObject({
       cassandra: { status: 'up' },
