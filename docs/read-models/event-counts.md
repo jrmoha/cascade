@@ -74,6 +74,13 @@ can't be part of the primary key, so the row key can't enforce idempotency the w
 The TTL is the **lateness horizon**, configured by `AGGREGATOR_DEDUP_TTL_SECONDS`
 (required env), bounded above by the raw-events 30-day TTL.
 
+**Offset commit (no lost updates).** The consumer commits a message's offset only
+**after** the durable counter write — NestJS `ServerKafka` runs KafkaJS `eachMessage`,
+which resolves the offset after the handler returns, and the handler `await`s the write
+first ([ADR-0016](../adr/0016-idempotent-replayable-aggregation.md) §2). A crash
+mid-handler leaves the offset uncommitted, so Kafka redelivers (at-least-once) rather
+than losing the event.
+
 **Residual edge:** if the process crashes between the `SETNX` and the counter write,
 the offset isn't committed, the redelivery is skipped by the now-set dedup key, and
 that one increment is lost (a rare under-count). This is the inherent at-least-once
@@ -85,8 +92,12 @@ a rebuild.
 Every count is a pure, deterministic function of the log. To rebuild: truncate
 `event_counts_by_minute` / `event_counts_by_hour` (and flush the dedup keyspace),
 then replay `raw-events` from offset 0 with the Aggregator (a fresh consumer group
-or offsets reset to earliest). Determinism holds because counts key off event time
-and the stable `eventId` (ADR-0015 §5).
+or offsets reset to earliest). Flushing the dedup keyspace is essential — the replay
+re-presents every event including its in-log duplicates, and the gate must dedup the
+replay against itself, not against the original pass's expired markers. Determinism
+holds because counts key off event time and the stable `eventId`
+([ADR-0015](../adr/0015-read-model-aggregation-strategy.md) §5,
+[ADR-0016](../adr/0016-idempotent-replayable-aggregation.md) §3).
 
 ## Tests
 
@@ -97,3 +108,10 @@ and the stable `eventId` (ADR-0015 §5).
   real Kafka + Cassandra + Redis; feeds a known event set (including a redelivered
   `eventId`) and asserts the minute and hour counters match **exactly**, with the
   duplicate counted once.
+- **Integration (keystone)** — [`test/idempotency.e2e-spec.ts`](../../services/aggregator/test/idempotency.e2e-spec.ts):
+  the idempotency/replayability contract of
+  [ADR-0016](../adr/0016-idempotent-replayable-aggregation.md). Proves (a) out-of-order
+  **distinct** events bucket by event time regardless of arrival order; (b) a replay
+  from offset 0 into truncated tables with a flushed dedup keyspace reproduces the full
+  aggregate state **byte-for-byte**; (c) redelivery across a consumer restart neither
+  double-counts nor loses updates (dedup state survives the restart).
