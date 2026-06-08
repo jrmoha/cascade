@@ -4,6 +4,7 @@ import type { DeadLetter, RawEvent } from '@cascade/contracts';
 import type { DeadLetterPublisher } from '../src/aggregation/dead-letter.publisher';
 import type { DedupStore } from '../src/aggregation/dedup.store';
 import type { EventCountsRepository } from '../src/aggregation/event-counts.repository';
+import type { LeaderboardRepository } from '../src/aggregation/leaderboard.repository';
 import { AggregatorController } from '../src/aggregation/aggregator.controller';
 
 const validEvent: RawEvent = {
@@ -29,10 +30,11 @@ function ctx(value: string, key: string | null = 'game-1'): KafkaContext {
   } as unknown as KafkaContext;
 }
 
-describe('AggregatorController (event counts)', () => {
+describe('AggregatorController (read models)', () => {
   let firstSight: ReturnType<typeof vi.fn>;
   let forget: ReturnType<typeof vi.fn>;
   let increment: ReturnType<typeof vi.fn>;
+  let apply: ReturnType<typeof vi.fn>;
   let publish: ReturnType<typeof vi.fn>;
   let controller: AggregatorController;
 
@@ -40,31 +42,36 @@ describe('AggregatorController (event counts)', () => {
     firstSight = vi.fn().mockResolvedValue(true);
     forget = vi.fn().mockResolvedValue(undefined);
     increment = vi.fn().mockResolvedValue(undefined);
+    apply = vi.fn().mockResolvedValue(undefined);
     publish = vi.fn().mockResolvedValue(undefined);
     controller = new AggregatorController(
       { firstSight, forget } as unknown as DedupStore,
       { increment } as unknown as EventCountsRepository,
+      { apply } as unknown as LeaderboardRepository,
       { publish } as unknown as DeadLetterPublisher,
     );
   });
 
-  it('counts a first-seen valid event and does not dead-letter it', async () => {
+  it('derives both views for a first-seen valid event and does not dead-letter it', async () => {
     await controller.handleRawEvent(validEvent, ctx(JSON.stringify(validEvent)));
 
     expect(firstSight).toHaveBeenCalledWith(validEvent.eventId);
     expect(increment).toHaveBeenCalledTimes(1);
     expect(increment).toHaveBeenCalledWith(validEvent);
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(apply).toHaveBeenCalledWith(validEvent);
     expect(publish).not.toHaveBeenCalled();
     expect(forget).not.toHaveBeenCalled();
   });
 
-  it('skips a duplicate event (dedup no-op) — no counter write, no dead-letter', async () => {
+  it('skips a duplicate event (dedup no-op) — no view writes, no dead-letter', async () => {
     firstSight.mockResolvedValue(false); // already seen within the horizon
 
     await controller.handleRawEvent(validEvent, ctx(JSON.stringify(validEvent)));
 
     expect(firstSight).toHaveBeenCalledWith(validEvent.eventId);
     expect(increment).not.toHaveBeenCalled();
+    expect(apply).not.toHaveBeenCalled();
     expect(publish).not.toHaveBeenCalled();
   });
 
@@ -88,12 +95,29 @@ describe('AggregatorController (event counts)', () => {
     await controller.handleRawEvent(validEvent, ctx(JSON.stringify(validEvent)));
 
     expect(increment).toHaveBeenCalledTimes(3); // MAX_ATTEMPTS
+    expect(apply).not.toHaveBeenCalled(); // counts failed first → leaderboard not attempted
     // Compensating delete so the uncounted event can be re-counted on replay.
     expect(forget).toHaveBeenCalledWith(validEvent.eventId);
     expect(publish).toHaveBeenCalledTimes(1);
     const dl = publish.mock.calls[0][0] as DeadLetter;
     expect(dl.error.kind).toBe('persistence');
     expect(dl.error.reason).toContain('cassandra down');
+    expect(dl.attempts).toBe(3);
+    expect(dl.originalEvent).toEqual(validEvent);
+  });
+
+  it('retries a failing leaderboard write (after counts succeed), then forgets and dead-letters', async () => {
+    apply.mockRejectedValue(new Error('redis down'));
+
+    await controller.handleRawEvent(validEvent, ctx(JSON.stringify(validEvent)));
+
+    expect(increment).toHaveBeenCalledTimes(1); // counts succeeded once, not re-run
+    expect(apply).toHaveBeenCalledTimes(3); // MAX_ATTEMPTS on its own retry
+    expect(forget).toHaveBeenCalledWith(validEvent.eventId);
+    expect(publish).toHaveBeenCalledTimes(1);
+    const dl = publish.mock.calls[0][0] as DeadLetter;
+    expect(dl.error.kind).toBe('persistence');
+    expect(dl.error.reason).toContain('redis down');
     expect(dl.attempts).toBe(3);
     expect(dl.originalEvent).toEqual(validEvent);
   });

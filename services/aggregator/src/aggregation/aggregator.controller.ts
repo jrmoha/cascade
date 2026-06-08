@@ -4,6 +4,7 @@ import { DeadLetter, RAW_EVENTS_TOPIC, rawEventSchema } from '@cascade/contracts
 import { DeadLetterPublisher } from './dead-letter.publisher';
 import { DedupStore } from './dedup.store';
 import { EventCountsRepository } from './event-counts.repository';
+import { LeaderboardRepository } from './leaderboard.repository';
 
 /** Bounded retry policy for transient (counter-write) failures — see ADR-0006. */
 export const MAX_ATTEMPTS = 3;
@@ -15,10 +16,11 @@ export const RETRY_BASE_MS = 200;
  * independent** consumer of the topic (own `cascade-aggregator` group), parallel
  * to the Ingestion-Processor.
  *
- * As of KAN-32 it derives the first read model: per-`(project, eventType,
- * time-bucket)` **event counts** (minute + hour) in Cassandra, windowed by event
- * time. Leaderboards/funnels/retention are follow-up tickets that slot into the
- * same valid-event branch.
+ * As of KAN-32 it derives per-`(project, eventType, time-bucket)` **event
+ * counts** (minute + hour) in Cassandra, and as of KAN-34 a per-project **live
+ * leaderboard** in Redis sorted sets (ADR-0015 §2). Both are applied in the same
+ * valid-event branch; funnels/retention are follow-up tickets that slot in the
+ * same way.
  *
  * Failure handling mirrors the Ingestion-Processor and the project's DLQ rule
  * (ADR-0006): a message that fails the shared contract is **permanent** —
@@ -39,6 +41,7 @@ export class AggregatorController {
   constructor(
     private readonly dedup: DedupStore,
     private readonly counts: EventCountsRepository,
+    private readonly leaderboard: LeaderboardRepository,
     private readonly deadLetters: DeadLetterPublisher,
   ) {}
 
@@ -77,37 +80,54 @@ export class AggregatorController {
       return;
     }
 
-    // Transient failure: retry the counter write with bounded exponential backoff.
+    // Transient failure: derive the views with bounded exponential backoff. The
+    // counter `+1` (additive) and the leaderboard `ZADD GT` (best-score) each get
+    // their OWN retry, so a leaderboard hiccup never re-runs the non-idempotent
+    // counter increment. If EITHER ultimately fails, undo the dedup marker (so the
+    // event can be re-derived on a later replay) and dead-letter it.
+    try {
+      await this.withRetry('Count', event.eventId, () => this.counts.increment(event));
+      await this.withRetry('Leaderboard', event.eventId, () => this.leaderboard.apply(event));
+    } catch (err) {
+      await this.dedup.forget(event.eventId);
+      await this.deadLetters.publish({
+        originalValue,
+        originalEvent: event,
+        error: { kind: 'persistence', reason: (err as Error)?.message ?? String(err) },
+        attempts: MAX_ATTEMPTS,
+        failedAt: new Date().toISOString(),
+        source,
+      });
+      return;
+    }
+
+    this.logger.debug(
+      `Derived views for event ${event.eventId} (${event.type}) for project ${event.projectId}`,
+    );
+  }
+
+  /**
+   * Run one view-write with bounded exponential backoff. Returns on the first
+   * success; rethrows the last error once {@link MAX_ATTEMPTS} is exhausted so the
+   * caller can dead-letter the event.
+   */
+  private async withRetry(label: string, eventId: string, op: () => Promise<void>): Promise<void> {
     let lastError: unknown;
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
-        await this.counts.increment(event);
-        this.logger.debug(
-          `Counted event ${event.eventId} (${event.type}) for project ${event.projectId}`,
-        );
+        await op();
         return;
       } catch (err) {
         lastError = err;
         this.logger.warn(
-          `Count attempt ${attempt}/${MAX_ATTEMPTS} failed for event ${event.eventId}: ${(err as Error).message}`,
+          `${label} attempt ${attempt}/${MAX_ATTEMPTS} failed for event ${eventId}: ${(err as Error).message}`,
         );
         if (attempt < MAX_ATTEMPTS) {
           await sleep(RETRY_BASE_MS * 2 ** (attempt - 1));
         }
       }
     }
-
-    // Retries exhausted — undo the dedup marker so the (uncounted) event can be
-    // re-counted on a later replay, then dead-letter it for inspection.
-    await this.dedup.forget(event.eventId);
-    await this.deadLetters.publish({
-      originalValue,
-      originalEvent: event,
-      error: { kind: 'persistence', reason: (lastError as Error)?.message ?? String(lastError) },
-      attempts: MAX_ATTEMPTS,
-      failedAt: new Date().toISOString(),
-      source,
-    });
+    throw lastError;
   }
 }
 

@@ -49,6 +49,7 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Aggregator stores (integr
       DATABASE_URL: postgresContainer.getConnectionUri(),
       KAFKA_BOOTSTRAP_SERVERS: ['localhost:9092'],
       AGGREGATOR_DEDUP_TTL_SECONDS: 86400,
+      AGGREGATOR_LEADERBOARD_DAILY_TTL_SECONDS: 172800,
       PORT: 3005,
     } satisfies AggregatorConfig;
 
