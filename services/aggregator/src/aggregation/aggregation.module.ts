@@ -8,6 +8,7 @@ import { AggregatorController } from './aggregator.controller';
 import { DeadLetterPublisher } from './dead-letter.publisher';
 import { DedupStore } from './dedup.store';
 import { EventCountsRepository } from './event-counts.repository';
+import { LeaderboardRepository } from './leaderboard.repository';
 import { DLQ_PRODUCER } from './kafka.tokens';
 
 @Module({
@@ -37,6 +38,6 @@ import { DLQ_PRODUCER } from './kafka.tokens';
     ]),
   ],
   controllers: [AggregatorController],
-  providers: [DeadLetterPublisher, DedupStore, EventCountsRepository],
+  providers: [DeadLetterPublisher, DedupStore, EventCountsRepository, LeaderboardRepository],
 })
 export class AggregationModule {}

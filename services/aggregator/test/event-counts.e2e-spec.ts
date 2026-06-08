@@ -79,6 +79,7 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')(
       process.env.REDIS_HOST = redisContainer.getHost();
       process.env.REDIS_PORT = String(redisContainer.getMappedPort(6379));
       process.env.AGGREGATOR_DEDUP_TTL_SECONDS = '3600';
+      process.env.AGGREGATOR_LEADERBOARD_DAILY_TTL_SECONDS = '172800';
       // Required by the env schema but unused by the counts path (no Postgres wired).
       process.env.DATABASE_URL = 'postgresql://cascade:cascade@localhost:5432/cascade';
 

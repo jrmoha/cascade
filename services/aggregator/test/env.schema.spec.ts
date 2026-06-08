@@ -10,6 +10,7 @@ const base = {
   REDIS_PORT: '6379',
   DATABASE_URL: 'postgresql://cascade:cascade@localhost:5432/cascade',
   AGGREGATOR_DEDUP_TTL_SECONDS: '86400',
+  AGGREGATOR_LEADERBOARD_DAILY_TTL_SECONDS: '172800',
 };
 
 describe('aggregatorEnvSchema', () => {
@@ -21,6 +22,7 @@ describe('aggregatorEnvSchema', () => {
     expect(cfg.CASSANDRA_PORT).toBe(9042);
     expect(cfg.REDIS_PORT).toBe(6379);
     expect(cfg.AGGREGATOR_DEDUP_TTL_SECONDS).toBe(86400);
+    expect(cfg.AGGREGATOR_LEADERBOARD_DAILY_TTL_SECONDS).toBe(172800);
   });
 
   it('splits a comma-separated broker/contact-point list and trims blanks', () => {

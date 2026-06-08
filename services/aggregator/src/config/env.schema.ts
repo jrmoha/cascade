@@ -49,6 +49,14 @@ export const aggregatorEnvSchema = cassandraEnvSchema.extend({
    * {@link DedupStore}.
    */
   AGGREGATOR_DEDUP_TTL_SECONDS: z.coerce.number().int().positive(),
+  /**
+   * Retention for the **daily** leaderboard sorted sets (KAN-34, ADR-0015 §2):
+   * each per-UTC-day board (`lb:{projectId}:{YYYY-MM-DD}`) is given/refreshed this
+   * TTL on write so old days self-expire, while the all-time board never expires.
+   * Required (no inline default); a retention knob, bounded above by the
+   * raw-events 30-day TTL (ADR-0007). See {@link LeaderboardRepository}.
+   */
+  AGGREGATOR_LEADERBOARD_DAILY_TTL_SECONDS: z.coerce.number().int().positive(),
 });
 
 export type CassandraEnv = z.infer<typeof cassandraEnvSchema>;
