@@ -8,7 +8,7 @@ describe('LeaderboardService', () => {
     const zrevrange = vi.fn().mockResolvedValue(['p2', '350', 'p3', '200', 'p1', '100']);
     const svc = new LeaderboardService({ zrevrange } as unknown as Redis);
 
-    const res = await svc.topN('arena', 'alltime', 10);
+    const res = await svc.topN({ projectId: 'arena', period: 'alltime', limit: 10 });
 
     // ZREVRANGE key 0 limit-1 WITHSCORES — limit-1 because the range is inclusive.
     expect(zrevrange).toHaveBeenCalledWith('lb:arena:alltime', 0, 9, 'WITHSCORES');
@@ -28,7 +28,7 @@ describe('LeaderboardService', () => {
     const zscore = vi.fn().mockResolvedValue('100');
     const svc = new LeaderboardService({ zrevrank, zscore } as unknown as Redis);
 
-    const res = await svc.playerRank('arena', '2026-05-30', 'p1');
+    const res = await svc.playerRank({ projectId: 'arena', period: '2026-05-30', playerId: 'p1' });
 
     expect(zrevrank).toHaveBeenCalledWith('lb:arena:2026-05-30', 'p1');
     expect(res).toEqual({
@@ -45,8 +45,8 @@ describe('LeaderboardService', () => {
     const zscore = vi.fn().mockResolvedValue(null);
     const svc = new LeaderboardService({ zrevrank, zscore } as unknown as Redis);
 
-    await expect(svc.playerRank('arena', 'alltime', 'ghost')).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(
+      svc.playerRank({ projectId: 'arena', period: 'alltime', playerId: 'ghost' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });
