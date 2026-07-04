@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { collectEventSchema, rawEventSchema } from '../src/events';
+import { funnelResponseSchema } from '../src/funnel';
+import { retentionResponseSchema } from '../src/retention';
 import {
   eventSchemaSchema,
   registerEventSchemaSchema,
@@ -30,6 +32,8 @@ describe('contract compatibility snapshot', () => {
       verifyKeyResponse: zodToJsonSchema(verifyKeyResponseSchema, 'verifyKeyResponse'),
       eventSchemaRecord: zodToJsonSchema(eventSchemaSchema, 'eventSchemaRecord'),
       registerEventSchema: zodToJsonSchema(registerEventSchemaSchema, 'registerEventSchema'),
+      funnelResponse: zodToJsonSchema(funnelResponseSchema, 'funnelResponse'),
+      retentionResponse: zodToJsonSchema(retentionResponseSchema, 'retentionResponse'),
     };
 
     expect(contracts).toMatchSnapshot();

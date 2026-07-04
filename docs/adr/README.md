@@ -31,6 +31,7 @@ ADRs follow the [MADR](https://adr.github.io/madr/) lightweight template:
 | [0014](0014-nestjs-11-prisma-7-upgrade.md)               | Upgrade to NestJS 11 + Prisma 7 (Postgres via `@prisma/adapter-pg`, `prisma.config.ts`)      | Accepted             |
 | [0015](0015-read-model-aggregation-strategy.md)          | Read-model & aggregation strategy (CQRS): views/stores, event-time windowing, dedup, rebuild | Accepted             |
 | [0016](0016-idempotent-replayable-aggregation.md)        | Idempotent & replayable aggregation (the keystone): dedup key, offset commit, rebuild, proof | Accepted             |
+| [0017](0017-funnel-and-retention-views.md)               | Funnel & retention derived views (Postgres; query-time funnel, naturally-idempotent upserts) | Accepted             |
 
 ## Creating a new ADR
 

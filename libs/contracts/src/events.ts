@@ -117,3 +117,19 @@ export const collectEventSchema = rawEventSchema
 
 /** The validated, client-supplied shape accepted by `POST /collect`. */
 export type CollectEventInput = z.infer<typeof collectEventSchema>;
+
+/**
+ * Resolve the **actor identity** of an event for the per-actor read models
+ * (funnel & retention, KAN-35). An "actor" is the player/user a journey belongs
+ * to: prefer the explicit {@link RawEvent.actorId}, fall back to
+ * {@link RawEvent.sessionId} so session-scoped/anonymous journeys still count,
+ * and return `null` when neither is present (the event simply doesn't
+ * participate in those views — mirroring how the leaderboard skips events
+ * lacking `playerId`/`score`).
+ *
+ * This is the single source of truth for actor identity, imported by both the
+ * funnel and retention writers so they can never disagree.
+ */
+export function actorKey(event: Pick<RawEvent, 'actorId' | 'sessionId'>): string | null {
+  return event.actorId ?? event.sessionId ?? null;
+}

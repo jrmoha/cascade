@@ -39,7 +39,11 @@ service is the owner — and the only writer — of its store.
 
 Note on the Query API: per [ADR-0008](0008-raw-event-time-range-read.md) it may perform a **bounded,
 partition-key-bounded raw _retrieval_** (`GET /query?projectId=&from=&to=`) for replay/audit, but it
-**never aggregates** over raw Cassandra — analytics come exclusively from Aggregator read models.
+**never aggregates** over raw Cassandra — analytics come exclusively from Aggregator read models. As
+of KAN-35 ([ADR-0017](0017-funnel-and-retention-views.md)) it reads the Aggregator's **Postgres**
+funnel/retention summaries (read-only `pg` pool, no DDL/migrations — the Aggregator owns the schema),
+so Postgres joins Cassandra and Redis as a Query API **readiness** dependency. This is a new data-store
+dependency, not a new cross-service sync call — the sync-call and topic inventories below are unchanged.
 
 Note on the Aggregator: [ADR-0015](0015-read-model-aggregation-strategy.md) refines its store rule.
 It writes read models to **all three** stores — time-series counters to **Cassandra** (its own

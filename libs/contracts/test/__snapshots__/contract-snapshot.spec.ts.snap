@@ -86,6 +86,64 @@ exports[`contract compatibility snapshot > matches the committed JSON Schema for
       },
     },
   },
+  "funnelResponse": {
+    "$ref": "#/definitions/funnelResponse",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "definitions": {
+      "funnelResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string",
+          },
+          "projectId": {
+            "type": "string",
+          },
+          "steps": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "actors": {
+                  "minimum": 0,
+                  "type": "integer",
+                },
+                "conversionRate": {
+                  "maximum": 1,
+                  "minimum": 0,
+                  "type": "number",
+                },
+                "eventType": {
+                  "type": "string",
+                },
+                "step": {
+                  "exclusiveMinimum": 0,
+                  "type": "integer",
+                },
+              },
+              "required": [
+                "step",
+                "eventType",
+                "actors",
+                "conversionRate",
+              ],
+              "type": "object",
+            },
+            "type": "array",
+          },
+          "to": {
+            "type": "string",
+          },
+        },
+        "required": [
+          "projectId",
+          "from",
+          "to",
+          "steps",
+        ],
+        "type": "object",
+      },
+    },
+  },
   "rawEvent": {
     "$ref": "#/definitions/rawEvent",
     "$schema": "http://json-schema.org/draft-07/schema#",
@@ -167,6 +225,72 @@ exports[`contract compatibility snapshot > matches the committed JSON Schema for
         "required": [
           "eventType",
           "jsonSchema",
+        ],
+        "type": "object",
+      },
+    },
+  },
+  "retentionResponse": {
+    "$ref": "#/definitions/retentionResponse",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "definitions": {
+      "retentionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "cohorts": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "cohort": {
+                  "type": "string",
+                },
+                "cohortSize": {
+                  "minimum": 0,
+                  "type": "integer",
+                },
+                "offsets": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "actors": {
+                        "minimum": 0,
+                        "type": "integer",
+                      },
+                      "offset": {
+                        "minimum": 0,
+                        "type": "integer",
+                      },
+                    },
+                    "required": [
+                      "offset",
+                      "actors",
+                    ],
+                    "type": "object",
+                  },
+                  "type": "array",
+                },
+              },
+              "required": [
+                "cohort",
+                "cohortSize",
+                "offsets",
+              ],
+              "type": "object",
+            },
+            "type": "array",
+          },
+          "granularity": {
+            "const": "day",
+            "type": "string",
+          },
+          "projectId": {
+            "type": "string",
+          },
+        },
+        "required": [
+          "projectId",
+          "granularity",
+          "cohorts",
         ],
         "type": "object",
       },

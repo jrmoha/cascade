@@ -2,6 +2,8 @@ export * from './events';
 export * from './dead-letter';
 export * from './time-window';
 export * from './leaderboard';
+export * from './funnel';
+export * from './retention';
 export * from './project-schema';
 export * from './grpc';
 

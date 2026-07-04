@@ -2,13 +2,14 @@ import { Controller, Get } from '@nestjs/common';
 import { HealthCheck, HealthCheckService } from '@nestjs/terminus';
 import { CassandraHealthIndicator } from './cassandra.health';
 import { RedisHealthIndicator } from '../redis/redis.health';
+import { PostgresHealthIndicator } from './postgres.health';
 
 /**
  * Liveness (`GET /health`) = the process is up and serving HTTP.
  * Readiness (`GET /ready`) = the read stores the Query API serves from are
- * reachable: Cassandra (bounded raw retrieval, ADR-0008) and Redis (the
- * leaderboard read model, KAN-34). Either down → 503. Consumed by
- * container/k8s probes (KAN-27).
+ * reachable: Cassandra (bounded raw retrieval, ADR-0008), Redis (the leaderboard
+ * read model, KAN-34), and Postgres (the funnel & retention summaries, KAN-35).
+ * Any down → 503. Consumed by container/k8s probes (KAN-27).
  */
 @Controller()
 export class HealthController {
@@ -16,6 +17,7 @@ export class HealthController {
     private readonly health: HealthCheckService,
     private readonly cassandra: CassandraHealthIndicator,
     private readonly redis: RedisHealthIndicator,
+    private readonly postgres: PostgresHealthIndicator,
   ) {}
 
   @Get('health')
@@ -30,6 +32,7 @@ export class HealthController {
     return this.health.check([
       () => this.cassandra.isHealthy('cassandra'),
       () => this.redis.isHealthy('redis'),
+      () => this.postgres.isHealthy('postgres'),
     ]);
   }
 }
