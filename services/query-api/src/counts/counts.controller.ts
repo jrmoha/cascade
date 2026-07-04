@@ -1,10 +1,9 @@
 import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
 import {
   type CountsResponse,
-  hourlyBucketRange,
+  bucketSpanCount,
   MAX_COUNTS_MINUTE_BUCKETS,
   MAX_QUERY_BUCKETS,
-  minuteBucketRange,
 } from '@cascade/contracts';
 import { CountsQueryDto } from './dto/counts-query.dto';
 import { CountsService } from './counts.service';
@@ -30,16 +29,17 @@ export class CountsController {
 
     // Validate the window at the HTTP edge, where we can return a 400 with
     // context: `from <= to`, and the span must stay within the granularity cap
-    // so fan-out is bounded (never a cross-partition scan).
-    const buckets =
-      granularity === 'minute' ? minuteBucketRange(from, to) : hourlyBucketRange(from, to);
-    if (buckets.length === 0) {
+    // so fan-out is bounded (never a cross-partition scan). Count the span
+    // arithmetically — never materialize the bucket list here — so an absurdly
+    // wide window is rejected in O(1) instead of allocating millions of entries.
+    const span = bucketSpanCount(from, to, granularity);
+    if (span === 0) {
       throw new BadRequestException('`from` must be the same as or before `to`');
     }
     const max = granularity === 'minute' ? MAX_COUNTS_MINUTE_BUCKETS : MAX_QUERY_BUCKETS;
-    if (buckets.length > max) {
+    if (span > max) {
       throw new BadRequestException(
-        `Time window spans ${buckets.length} ${granularity} buckets, exceeding the maximum of ${max}`,
+        `Time window spans ${span} ${granularity} buckets, exceeding the maximum of ${max}`,
       );
     }
 

@@ -90,4 +90,24 @@ describe('CountsRepository', () => {
     // Guardrail trips before any Cassandra read.
     expect(execute).not.toHaveBeenCalled();
   });
+
+  it('rejects an absurdly wide window in O(1) without materializing the buckets', async () => {
+    const { cassandra, execute } = stubCassandra([]);
+    const repo = new CountsRepository(cassandra);
+
+    // A ~26-year minute window would be ~13.7M buckets. The span is checked
+    // arithmetically, so this returns immediately rather than allocating them.
+    const started = Date.now();
+    await expect(
+      repo.read({
+        projectId: 'game-1',
+        from: '2000-01-01T00:00:00.000Z',
+        to: '2026-01-01T00:00:00.000Z',
+        granularity: 'minute',
+      }),
+    ).rejects.toBeInstanceOf(BucketSpanError);
+    expect(execute).not.toHaveBeenCalled();
+    // Should be effectively instant (no multi-million-element array build).
+    expect(Date.now() - started).toBeLessThan(200);
+  });
 });

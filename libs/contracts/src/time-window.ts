@@ -62,6 +62,31 @@ export const MAX_QUERY_BUCKETS = 168;
 export const MAX_COUNTS_MINUTE_BUCKETS = 1440;
 
 /**
+ * Count the buckets covering the inclusive window `[from, to]` at the given
+ * granularity **without materializing them** — floor both ends to the unit and
+ * return `newest - oldest + 1`. Callers validate the span against a cap _before_
+ * building the (potentially huge) bucket list, so a wide window is rejected in
+ * O(1) instead of allocating tens of millions of strings first. Returns `0` when
+ * `from` is after `to` or either date is unparseable (mirrors the range helpers'
+ * empty-array case).
+ */
+export function bucketSpanCount(
+  from: Date | string,
+  to: Date | string,
+  granularity: 'minute' | 'hour',
+): number {
+  const unitMs = granularity === 'minute' ? MINUTE_MS : HOUR_MS;
+  const fromMs = new Date(from).getTime();
+  const toMs = new Date(to).getTime();
+  if (Number.isNaN(fromMs) || Number.isNaN(toMs)) return 0;
+
+  const newest = Math.floor(toMs / unitMs);
+  const oldest = Math.floor(fromMs / unitMs);
+  if (newest < oldest) return 0;
+  return newest - oldest + 1;
+}
+
+/**
  * Enumerate the minute buckets covering the inclusive window `[from, to]`,
  * most-recent first, formatted 'YYYY-MM-DDTHH:MM'. This is the minute-grained
  * counterpart of {@link hourlyBucketRange}: it enumerates the

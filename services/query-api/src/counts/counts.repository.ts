@@ -3,6 +3,7 @@ import { types } from 'cassandra-driver';
 import {
   type CountBucket,
   type CountsGranularity,
+  bucketSpanCount,
   hourlyBucketRange,
   MAX_COUNTS_MINUTE_BUCKETS,
   MAX_QUERY_BUCKETS,
@@ -69,12 +70,16 @@ export class CountsRepository {
   constructor(private readonly cassandra: CassandraService) {}
 
   async read({ projectId, from, to, granularity, type }: CountsRead): Promise<CountBucket[]> {
-    const buckets = bucketRange(granularity, from, to);
+    // Check the span arithmetically *before* materializing the bucket list, so
+    // an over-cap window throws in O(1) rather than allocating a huge array
+    // (the controller already guards; this is the backstop for direct callers).
     const max = MAX_BUCKETS[granularity];
-    if (buckets.length > max) {
-      throw new BucketSpanError(buckets.length, max, granularity);
+    const span = bucketSpanCount(from, to, granularity);
+    if (span > max) {
+      throw new BucketSpanError(span, max, granularity);
     }
 
+    const buckets = bucketRange(granularity, from, to);
     const table = TABLE[granularity];
     const select = type
       ? `SELECT event_type, count FROM ${table} WHERE project_id = ? AND time_bucket = ? AND event_type = ?`
