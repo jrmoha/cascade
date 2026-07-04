@@ -1,17 +1,49 @@
 # Runbook: Query API
 
-Read-path HTTP service. A NestJS app that serves `GET /query`, returning stored
-events for a project.
+Read-path HTTP service (NestJS). The read side of Cascade's CQRS split. It serves
+two kinds of read:
 
-> **Bounded raw retrieval (not analytics).** This endpoint reads **raw events
+- **Analytics** — `GET /counts` (Cassandra counter tables), `GET /leaderboard` +
+  `GET /leaderboard/rank` (Redis), `GET /funnel` + `GET /retention` (Postgres).
+  Each reads **only** the Aggregator's derived views, never `raw_events`. These
+  views are **eventually consistent**: a freshly ingested event appears only
+  after the Aggregator processes it (seconds) — expected, not a bug. The boundary
+  (analytics never reads raw) is enforced by `test/cqrs-boundary.spec.ts`. See
+  [ADR-0015](../adr/0015-read-model-aggregation-strategy.md) /
+  [ADR-0018](../adr/0018-enforce-cqrs-read-boundary.md) and the per-view pages
+  under `docs/read-models/`.
+- **Bounded raw retrieval** — `GET /query`, below.
+
+> **`GET /query` is bounded raw retrieval, not analytics.** It reads **raw events
 > directly from Cassandra** for replay/audit/debugging. It is partition-key-
-> bounded — never a cross-partition scan, never `ALLOW FILTERING`. Analytics
-> (counters/funnels/leaderboards) are served separately from Aggregator read
-> models and never touch raw Cassandra. See
-> [ADR-0008](../adr/0008-raw-event-time-range-read.md) (supersedes the Phase-0
-> ADR-0003) and `docs/contracts/events.md` → "Reading events back".
+> bounded — never a cross-partition scan, never `ALLOW FILTERING`. Analytics is
+> served separately from Aggregator read models and never touches raw Cassandra.
+> See [ADR-0008](../adr/0008-raw-event-time-range-read.md) (supersedes the
+> Phase-0 ADR-0003) and `docs/contracts/events.md` → "Reading events back".
 
 ## API
+
+### Analytics endpoints (derived views only)
+
+| Endpoint                | Query params                                 | Served from                                     |
+| ----------------------- | -------------------------------------------- | ----------------------------------------------- |
+| `GET /counts`           | `projectId, from, to, [granularity], [type]` | `event_counts_by_minute`/`_by_hour` (Cassandra) |
+| `GET /leaderboard`      | `projectId, period, [limit]`                 | `lb:{projectId}:{period}` sorted set (Redis)    |
+| `GET /leaderboard/rank` | `projectId, period, playerId`                | same Redis sorted set (404 if player absent)    |
+| `GET /funnel`           | `projectId, steps, from, to`                 | `funnel_actor_steps` (Postgres)                 |
+| `GET /retention`        | `projectId, from, to, [maxOffset]`           | `retention_actor_activity` (Postgres)           |
+
+`GET /counts` returns a newest-first series of `{ bucket, eventType, count }`.
+`granularity` (`minute`|`hour`, default `hour`) selects the counter table; span is
+capped so fan-out is bounded (`hour` ≤ 168 buckets / 7 days, `minute` ≤ 1440 / 24 h);
+`from > to` or an over-cap window is `400`. Full request/response shapes are in
+[`query-api.openapi.yaml`](../specs/query-api.openapi.yaml); the per-view mechanics are
+in `docs/read-models/`.
+
+All five are **eventually consistent** with ingestion (they reflect only what the
+Aggregator has processed) and never read `raw_events`.
+
+### Bounded raw retrieval
 
 `GET /query` — read a project's events within an inclusive event-time window
 `[from, to]`, newest-first, cursor-paged (KAN-25).
@@ -67,13 +99,19 @@ wider than 168 buckets, or a malformed/mismatched `cursor`. An unknown
 | Env var                    | Default       | Notes                                                                                               |
 | -------------------------- | ------------- | --------------------------------------------------------------------------------------------------- |
 | `PORT`                     | `3002`        | HTTP listen port.                                                                                   |
-| `CASSANDRA_CONTACT_POINTS` | `localhost`   | Comma-separated. `cassandra:9042` in-container.                                                     |
+| `CASSANDRA_CONTACT_POINTS` | _required_    | Comma-separated. `cassandra:9042` in-container. Serves `/counts` + `/query`.                        |
 | `CASSANDRA_PORT`           | `9042`        |                                                                                                     |
 | `CASSANDRA_LOCAL_DC`       | `datacenter1` | Must match the cluster's datacenter. With the default SimpleSnitch it is `datacenter1` (NOT `dc1`). |
+| `REDIS_HOST`               | _required_    | Redis host. Serves `/leaderboard` + `/leaderboard/rank`.                                            |
+| `REDIS_PORT`               | `6379`        |                                                                                                     |
+| `DATABASE_URL`             | _required_    | Postgres connection string (read-only pool). Serves `/funnel` + `/retention`.                       |
 
-The service is **read-only** — it performs no DDL. The Ingestion-Processor owns
-the `cascade.raw_events` schema (see its runbook); the Query API must not be
-started against an empty cluster expecting it to create tables.
+The service is **read-only** across all three stores — it performs no DDL or
+migrations. The Ingestion-Processor owns the `cascade.raw_events` schema and the
+Aggregator owns the derived-view schemas (Cassandra counter tables, Redis keys,
+Postgres funnel/retention tables); the Query API must not be started expecting it
+to create anything. All three stores are readiness deps — `GET /ready` returns
+`503` if any is down.
 
 ## Run locally
 

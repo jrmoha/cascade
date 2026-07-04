@@ -2,22 +2,320 @@ openapi: 3.0.3
 info:
   title: Cascade Query API
   description: >
-    Serves bounded raw event retrieval (replay, audit, debugging). Reads from
-    Cassandra using partition-key-bounded queries only — never a cross-partition
-    scan, never ALLOW FILTERING. The window maps to hourly `time_bucket`
-    partitions; span is capped at 7 days (168 buckets). See ADR-0008.
-  version: 0.1.0
+    The read side of Cascade's CQRS split. Two kinds of read:
+
+    (1) **Analytics** — counts, leaderboard, funnel, retention — served **only**
+    from the Aggregator's pre-aggregated read models (Cascandra counter tables,
+    Redis sorted sets, Postgres summary tables), never by scanning raw events.
+    Read cost is bounded by the requested window, not by total ingested volume,
+    so ingestion can spike without slowing reads. These views are **eventually
+    consistent**: a freshly ingested event appears only after the Aggregator
+    processes it (seconds) — expected behaviour, not a bug. The boundary
+    (analytics never reads `raw_events`) is enforced by an architecture test.
+    See ADR-0015 / ADR-0018.
+
+    (2) **Bounded raw retrieval** (`GET /query`) — replay/audit/debugging only.
+    Reads Cassandra with partition-key-bounded queries — never a cross-partition
+    scan, never ALLOW FILTERING; span capped at 7 days (168 buckets). This is not
+    analytics. See ADR-0008.
+  version: 0.2.0
 servers:
   - url: http://localhost:3002
     description: Local development
 
 tags:
+  - name: Analytics
+    description: >
+      Aggregate reads served only from derived views (never raw events).
+      Eventually consistent with ingestion.
   - name: Query
-    description: Raw event retrieval
+    description: Bounded raw event retrieval (replay/audit/debug), not analytics
   - name: Health
     description: Liveness and readiness probes
 
 paths:
+  /counts:
+    get:
+      operationId: eventCounts
+      summary: Per-bucket event counts (derived view)
+      description: >
+        Time-series of event counts per `(bucket, eventType)` for a project over
+        an inclusive event-time window, served from the Aggregator's
+        `event_counts_by_minute` / `event_counts_by_hour` Cassandra counter
+        tables — never `raw_events` (ADR-0015 / ADR-0018). The window maps to the
+        `(project_id, time_bucket)` partitions it covers, each read with one
+        prepared single-partition SELECT. Span is capped so fan-out (hence
+        latency) is independent of total ingested volume: `hour` ≤ 168 buckets
+        (7 days), `minute` ≤ 1440 buckets (24 h); wider windows and `from > to`
+        are 400. Eventually consistent — a just-ingested event is counted only
+        after the Aggregator processes it.
+      tags: [Analytics]
+      parameters:
+        - name: projectId
+          in: query
+          required: true
+          schema: { type: string, minLength: 1 }
+          description: Project (tenant) to read counts for
+          example: 'game-1'
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date-time }
+          description: Inclusive start of the event-time window (ISO-8601)
+          example: '2026-05-30T10:00:00.000Z'
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date-time }
+          description: Inclusive end of the event-time window (ISO-8601)
+          example: '2026-05-30T11:59:59.999Z'
+        - name: granularity
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [minute, hour]
+            default: hour
+          description: Bucket size; selects the counter table read
+          example: 'hour'
+        - name: type
+          in: query
+          required: false
+          schema: { type: string, minLength: 1 }
+          description: Optional single event-type filter
+          example: 'login'
+      responses:
+        '200':
+          description: Per-bucket counts (may be empty), newest-first
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CountsResponse'
+              example:
+                projectId: 'game-1'
+                granularity: 'hour'
+                from: '2026-05-30T10:00:00.000Z'
+                to: '2026-05-30T11:59:59.999Z'
+                buckets:
+                  - { bucket: '2026-05-30T11', eventType: 'login', count: 3 }
+                  - { bucket: '2026-05-30T10', eventType: 'login', count: 5 }
+                  - { bucket: '2026-05-30T10', eventType: 'score', count: 2 }
+        '400':
+          description: 'Bad request — e.g. `from` > `to`, or window exceeds the granularity cap'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /leaderboard:
+    get:
+      operationId: leaderboardTopN
+      summary: Leaderboard top-N (derived view)
+      description: >
+        Top-N players for a project + period, read from the Aggregator's Redis
+        sorted set `lb:{projectId}:{period}` — never raw events (ADR-0015 /
+        ADR-0016). Scores are best-score (ZADD GT). Ranks are 1-based.
+      tags: [Analytics]
+      parameters:
+        - name: projectId
+          in: query
+          required: true
+          schema: { type: string, minLength: 1 }
+          example: 'game-1'
+        - name: period
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^(alltime|\d{4}-\d{2}-\d{2})$'
+          description: '`alltime` or a UTC calendar day `YYYY-MM-DD`'
+          example: 'alltime'
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 10 }
+          description: Number of top entries to return
+          example: 10
+      responses:
+        '200':
+          description: Ranked top-N (may be empty)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TopNResponse'
+              example:
+                projectId: 'game-1'
+                period: 'alltime'
+                entries:
+                  - { playerId: 'p2', score: 350, rank: 1 }
+                  - { playerId: 'p1', score: 100, rank: 2 }
+        '400':
+          description: Bad request — invalid `period`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /leaderboard/rank:
+    get:
+      operationId: leaderboardPlayerRank
+      summary: A single player's rank (derived view)
+      description: >
+        One player's 1-based rank and score on a board, from the same Redis
+        sorted set. 404 when the player is absent from the board.
+      tags: [Analytics]
+      parameters:
+        - name: projectId
+          in: query
+          required: true
+          schema: { type: string, minLength: 1 }
+          example: 'game-1'
+        - name: period
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^(alltime|\d{4}-\d{2}-\d{2})$'
+          example: 'alltime'
+        - name: playerId
+          in: query
+          required: true
+          schema: { type: string, minLength: 1 }
+          example: 'p1'
+      responses:
+        '200':
+          description: The player's standing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlayerRankResponse'
+              example:
+                projectId: 'game-1'
+                period: 'alltime'
+                playerId: 'p1'
+                rank: 2
+                score: 100
+        '404':
+          description: Player is not on this board
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /funnel:
+    get:
+      operationId: funnelConversion
+      summary: Ordered funnel conversion (derived view)
+      description: >
+        For an ad-hoc ordered step list, how many distinct actors progressed
+        through each step within an event-time window. Computed at read time from
+        the Aggregator's per-actor `funnel_actor_steps` Postgres table — never raw
+        events (ADR-0015 / ADR-0017). An actor counts at step k only if it
+        performed steps 1..k with non-decreasing event-time timestamps.
+      tags: [Analytics]
+      parameters:
+        - name: projectId
+          in: query
+          required: true
+          schema: { type: string, minLength: 1 }
+          example: 'game-1'
+        - name: steps
+          in: query
+          required: true
+          schema: { type: string }
+          description: 'Comma-separated ordered event types (2–10 distinct)'
+          example: 'game_start,level_complete,purchase'
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date-time }
+          example: '2026-05-01T00:00:00.000Z'
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date-time }
+          example: '2026-05-31T23:59:59.999Z'
+      responses:
+        '200':
+          description: Per-step actor counts and cumulative conversion rates
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FunnelResponse'
+              example:
+                projectId: 'game-1'
+                from: '2026-05-01T00:00:00.000Z'
+                to: '2026-05-31T23:59:59.999Z'
+                steps:
+                  - { step: 1, eventType: 'game_start', actors: 1000, conversionRate: 1 }
+                  - { step: 2, eventType: 'level_complete', actors: 620, conversionRate: 0.62 }
+                  - { step: 3, eventType: 'purchase', actors: 85, conversionRate: 0.085 }
+        '400':
+          description: 'Bad request — `steps` not 2–10 distinct types, or `from` > `to`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /retention:
+    get:
+      operationId: retentionCohorts
+      summary: Cohort retention matrix (derived view)
+      description: >
+        The classic cohort triangle: for actors first seen on each UTC day in the
+        cohort range, how many return on each subsequent day offset. Derived at
+        read time from the Aggregator's `retention_actor_activity` Postgres table
+        (cohort = each actor's earliest active day) — never raw events (ADR-0015 /
+        ADR-0017). Granularity is the UTC day.
+      tags: [Analytics]
+      parameters:
+        - name: projectId
+          in: query
+          required: true
+          schema: { type: string, minLength: 1 }
+          example: 'game-1'
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date-time }
+          description: 'Inclusive start of the cohort-day range (≤ 92 days wide)'
+          example: '2026-05-01T00:00:00.000Z'
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date-time }
+          description: Inclusive end of the cohort-day range
+          example: '2026-05-14T23:59:59.999Z'
+        - name: maxOffset
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0, maximum: 90, default: 7 }
+          description: Day-offset depth of the retention curve
+          example: 7
+      responses:
+        '200':
+          description: Cohort matrix (may be empty)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetentionResponse'
+              example:
+                projectId: 'game-1'
+                granularity: 'day'
+                cohorts:
+                  - cohort: '2026-05-01'
+                    cohortSize: 500
+                    offsets:
+                      - { offset: 0, actors: 500 }
+                      - { offset: 1, actors: 210 }
+                      - { offset: 2, actors: 140 }
+        '400':
+          description: 'Bad request — `from` > `to`, or cohort range exceeds the cap'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /query:
     get:
       operationId: queryEvents
@@ -123,18 +421,19 @@ paths:
       operationId: readiness
       summary: Readiness probe
       description: >
-        Returns 200 when Cassandra is reachable. Returns 503 when the Query API
-        cannot serve reads.
+        Returns 200 when all read stores are reachable — Cassandra (counts + raw
+        retrieval), Redis (leaderboard), and Postgres (funnel + retention).
+        Returns 503 when any is down.
       tags: [Health]
       responses:
         '200':
-          description: Service is ready — Cassandra is reachable
+          description: Service is ready — Cassandra, Redis and Postgres are reachable
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
         '503':
-          description: Service is not ready — Cassandra is unreachable
+          description: Service is not ready — a read store (Cassandra/Redis/Postgres) is unreachable
           content:
             application/json:
               schema:
@@ -218,6 +517,122 @@ components:
             Opaque cursor to pass as `cursor` in the next request. Absent when
             there are no more events.
           example: 'eyJidWNrZXQiOiIyMDI2LTA2LTAxVDEwIiwiZXZlbnRJZCI6Ii4uLiJ9'
+
+    CountsResponse:
+      type: object
+      required: [projectId, granularity, from, to, buckets]
+      properties:
+        projectId: { type: string, example: 'game-1' }
+        granularity: { type: string, enum: [minute, hour], example: 'hour' }
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time }
+        buckets:
+          type: array
+          items:
+            type: object
+            required: [bucket, eventType, count]
+            properties:
+              bucket:
+                type: string
+                description: "UTC time-bucket ('YYYY-MM-DDTHH' or 'YYYY-MM-DDTHH:MM')"
+                example: '2026-05-30T10'
+              eventType: { type: string, example: 'login' }
+              count: { type: integer, minimum: 0, example: 5 }
+
+    TopNResponse:
+      type: object
+      required: [projectId, period, entries]
+      properties:
+        projectId: { type: string, example: 'game-1' }
+        period: { type: string, example: 'alltime' }
+        entries:
+          type: array
+          items:
+            type: object
+            required: [playerId, score, rank]
+            properties:
+              playerId: { type: string, example: 'p1' }
+              score: { type: number, example: 100 }
+              rank: { type: integer, minimum: 1, example: 2 }
+
+    PlayerRankResponse:
+      type: object
+      required: [projectId, period, playerId, rank, score]
+      properties:
+        projectId: { type: string, example: 'game-1' }
+        period: { type: string, example: 'alltime' }
+        playerId: { type: string, example: 'p1' }
+        rank: { type: integer, minimum: 1, example: 2 }
+        score: { type: number, example: 100 }
+
+    FunnelResponse:
+      type: object
+      required: [projectId, from, to, steps]
+      properties:
+        projectId: { type: string, example: 'game-1' }
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time }
+        steps:
+          type: array
+          items:
+            type: object
+            required: [step, eventType, actors, conversionRate]
+            properties:
+              step:
+                type: integer
+                minimum: 1
+                description: 1-based step position (1 = entry)
+                example: 2
+              eventType: { type: string, example: 'level_complete' }
+              actors:
+                type: integer
+                minimum: 0
+                description: Distinct actors that reached this step in order
+                example: 620
+              conversionRate:
+                type: number
+                minimum: 0
+                maximum: 1
+                description: Cumulative conversion from step 1 (step 1 is always 1)
+                example: 0.62
+
+    RetentionResponse:
+      type: object
+      required: [projectId, granularity, cohorts]
+      properties:
+        projectId: { type: string, example: 'game-1' }
+        granularity: { type: string, enum: [day], example: 'day' }
+        cohorts:
+          type: array
+          items:
+            type: object
+            required: [cohort, cohortSize, offsets]
+            properties:
+              cohort:
+                type: string
+                description: Cohort day, UTC 'YYYY-MM-DD'
+                example: '2026-05-01'
+              cohortSize:
+                type: integer
+                minimum: 0
+                description: Actors first seen on the cohort day (offset-0 size)
+                example: 500
+              offsets:
+                type: array
+                items:
+                  type: object
+                  required: [offset, actors]
+                  properties:
+                    offset:
+                      type: integer
+                      minimum: 0
+                      description: Days since the cohort day (0 = cohort day)
+                      example: 1
+                    actors:
+                      type: integer
+                      minimum: 0
+                      description: Distinct returning actors at this offset
+                      example: 210
 
     ErrorResponse:
       type: object

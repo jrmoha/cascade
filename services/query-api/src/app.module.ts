@@ -7,6 +7,7 @@ import { HealthModule } from './health/health.module';
 import { LeaderboardModule } from './leaderboard/leaderboard.module';
 import { FunnelModule } from './funnel/funnel.module';
 import { RetentionModule } from './retention/retention.module';
+import { CountsModule } from './counts/counts.module';
 import { QueryModule } from './query/query.module';
 
 @Module({
@@ -19,6 +20,7 @@ import { QueryModule } from './query/query.module';
     LeaderboardModule,
     FunnelModule,
     RetentionModule,
+    CountsModule,
     HealthModule,
   ],
 })

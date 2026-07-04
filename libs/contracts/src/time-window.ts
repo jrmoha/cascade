@@ -7,6 +7,7 @@
  */
 
 const HOUR_MS = 60 * 60 * 1000;
+const MINUTE_MS = 60 * 1000;
 
 /**
  * Map an ISO-8601 timestamp to its hourly partition bucket in UTC, formatted as
@@ -48,6 +49,45 @@ export function toMinuteBucket(iso: string | undefined): string {
  * ADR-0008.
  */
 export const MAX_QUERY_BUCKETS = 168;
+
+/**
+ * The maximum number of minute buckets a single counts read may span at
+ * `minute` granularity (1440 = 24 hours). Minute buckets are 60× denser than
+ * hourly ones, so this keeps the per-request partition fan-out bounded — a
+ * counts read is always over a bounded set of `(project_id, time_bucket)`
+ * partitions, so its latency is independent of total raw-event volume (KAN-36,
+ * ADR-0018). The `hour`-granularity read reuses {@link MAX_QUERY_BUCKETS}. The
+ * Query API rejects windows wider than the applicable cap.
+ */
+export const MAX_COUNTS_MINUTE_BUCKETS = 1440;
+
+/**
+ * Enumerate the minute buckets covering the inclusive window `[from, to]`,
+ * most-recent first, formatted 'YYYY-MM-DDTHH:MM'. This is the minute-grained
+ * counterpart of {@link hourlyBucketRange}: it enumerates the
+ * `(project_id, time_bucket)` partitions of the Aggregator's
+ * `event_counts_by_minute` table so the Query API can read each with one
+ * prepared single-partition SELECT — never a cross-partition scan. `from`/`to`
+ * are floored to their UTC minute and both endpoint minutes are included.
+ * Callers should bound the span against {@link MAX_COUNTS_MINUTE_BUCKETS}.
+ *
+ * Returns an empty array if `from` is after `to` or either date is unparseable.
+ */
+export function minuteBucketRange(from: Date | string, to: Date | string): string[] {
+  const fromDate = new Date(from);
+  const toDate = new Date(to);
+  if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) return [];
+
+  const floorToMinute = (ms: number): number => Math.floor(ms / MINUTE_MS) * MINUTE_MS;
+  const newest = floorToMinute(toDate.getTime());
+  const oldest = floorToMinute(fromDate.getTime());
+
+  const buckets: string[] = [];
+  for (let ms = newest; ms >= oldest; ms -= MINUTE_MS) {
+    buckets.push(new Date(ms).toISOString().slice(0, 16));
+  }
+  return buckets;
+}
 
 /**
  * Enumerate the hourly buckets covering the inclusive window `[from, to]`,

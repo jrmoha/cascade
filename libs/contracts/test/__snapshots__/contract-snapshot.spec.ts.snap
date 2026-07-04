@@ -42,6 +42,65 @@ exports[`contract compatibility snapshot > matches the committed JSON Schema for
       },
     },
   },
+  "countsResponse": {
+    "$ref": "#/definitions/countsResponse",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "definitions": {
+      "countsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "buckets": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "bucket": {
+                  "type": "string",
+                },
+                "count": {
+                  "minimum": 0,
+                  "type": "integer",
+                },
+                "eventType": {
+                  "type": "string",
+                },
+              },
+              "required": [
+                "bucket",
+                "eventType",
+                "count",
+              ],
+              "type": "object",
+            },
+            "type": "array",
+          },
+          "from": {
+            "type": "string",
+          },
+          "granularity": {
+            "enum": [
+              "minute",
+              "hour",
+            ],
+            "type": "string",
+          },
+          "projectId": {
+            "type": "string",
+          },
+          "to": {
+            "type": "string",
+          },
+        },
+        "required": [
+          "projectId",
+          "granularity",
+          "from",
+          "to",
+          "buckets",
+        ],
+        "type": "object",
+      },
+    },
+  },
   "eventSchemaRecord": {
     "$ref": "#/definitions/eventSchemaRecord",
     "$schema": "http://json-schema.org/draft-07/schema#",

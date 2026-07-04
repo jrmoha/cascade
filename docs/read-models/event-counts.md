@@ -15,8 +15,46 @@ event-time windowing, dedup-by-`eventId` idempotency, and replay-based rebuild.
 Time-series counts for a `(projectId, type)` over a time range, at **minute** and
 **hour** granularity — e.g. "how many `level_complete` events did `game-1` see per
 minute over the last hour". Both granularities are stored directly, so a read at
-either is O(1) per bucket. The Query API endpoint that exposes these is a
-follow-up ticket; KAN-32 lands the write side and its tables.
+either is O(1) per bucket.
+
+### Read endpoint — `GET /counts` (KAN-36)
+
+The Query API serves these tables directly (never `raw_events`):
+
+`GET /counts?projectId=&from=&to=&granularity=minute|hour&type=`
+
+- `granularity` selects the table (`minute` → `event_counts_by_minute`, `hour` →
+  `event_counts_by_hour`); defaults to `hour`. `type` optionally narrows to one event type.
+- Returns a per-bucket series, newest-first, of `{ bucket, eventType, count }` — only buckets
+  with counted events appear.
+- The window maps to the `(project_id, time_bucket)` partitions it covers and each is read
+  with one prepared single-partition `SELECT` — never a cross-partition scan, never
+  `ALLOW FILTERING`. Span is **capped** so fan-out (and thus latency) is independent of total
+  raw-event volume: `hour` reuses `MAX_QUERY_BUCKETS` (168 = 7 days), `minute` uses
+  `MAX_COUNTS_MINUTE_BUCKETS` (1440 = 24 h); wider windows and `from > to` are `400`.
+
+```json
+GET /counts?projectId=game-1&from=2026-05-30T10:00:00Z&to=2026-05-30T11:59:59Z&granularity=hour
+{
+  "projectId": "game-1",
+  "granularity": "hour",
+  "from": "2026-05-30T10:00:00Z",
+  "to": "2026-05-30T11:59:59Z",
+  "buckets": [
+    { "bucket": "2026-05-30T11", "eventType": "login", "count": 3 },
+    { "bucket": "2026-05-30T10", "eventType": "login", "count": 5 },
+    { "bucket": "2026-05-30T10", "eventType": "score", "count": 2 }
+  ]
+}
+```
+
+> **Eventually consistent (expected, not a bug).** A freshly ingested event is counted only
+> after the Aggregator processes it (seconds), so a just-sent event may not appear yet. See
+> [ADR-0018](../adr/0018-enforce-cqrs-read-boundary.md).
+
+The contract is Zod `countsResponse` in
+[`libs/contracts/src/counts.ts`](../../libs/contracts/src/counts.ts); the boundary (analytics
+never reads `raw_events`) is enforced by `query-api/test/cqrs-boundary.spec.ts` (ADR-0018).
 
 ## Store & schema (Cassandra)
 
