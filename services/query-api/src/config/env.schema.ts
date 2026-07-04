@@ -20,8 +20,9 @@ const csvList = z
  * only the service's own HTTP bind port carries a conventional default. Validated
  * once at boot — see {@link AppConfigModule}.
  *
- * The Query API reads from two stores: Cassandra (bounded raw retrieval, ADR-0008)
- * and Redis (the leaderboard read model, ADR-0015 / KAN-34).
+ * The Query API reads from three stores: Cassandra (bounded raw retrieval,
+ * ADR-0008), Redis (the leaderboard read model, ADR-0015 / KAN-34), and Postgres
+ * (the funnel & retention summaries, ADR-0017 / KAN-35).
  */
 export const queryApiEnvSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3002),
@@ -30,6 +31,7 @@ export const queryApiEnvSchema = z.object({
   CASSANDRA_LOCAL_DC: z.string().min(1),
   REDIS_HOST: z.string().min(1),
   REDIS_PORT: z.coerce.number().int().positive(),
+  DATABASE_URL: z.string().min(1),
 });
 
 export type QueryApiConfig = z.infer<typeof queryApiEnvSchema>;

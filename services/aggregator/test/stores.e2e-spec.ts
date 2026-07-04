@@ -88,9 +88,12 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Aggregator stores (integr
 
   it('Postgres migrator bootstraps its own tracking table (separate from Prisma)', async () => {
     const { rows } = await postgres.query<{ id: string }>(
-      'SELECT id FROM aggregator_schema_migrations',
+      'SELECT id FROM aggregator_schema_migrations ORDER BY id',
     );
-    expect(rows).toHaveLength(0);
+    const ids = rows.map((r) => r.id);
+    // The funnel/retention summary-table migrations (KAN-35) are applied + tracked.
+    expect(ids).toContain('0001_create_funnel_actor_steps');
+    expect(ids).toContain('0002_create_retention_actor_activity');
   });
 
   it('reports all three stores healthy via the readiness indicators', async () => {

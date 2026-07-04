@@ -5,6 +5,8 @@ import type { DeadLetterPublisher } from '../src/aggregation/dead-letter.publish
 import type { DedupStore } from '../src/aggregation/dedup.store';
 import type { EventCountsRepository } from '../src/aggregation/event-counts.repository';
 import type { LeaderboardRepository } from '../src/aggregation/leaderboard.repository';
+import type { FunnelRepository } from '../src/aggregation/funnel.repository';
+import type { RetentionRepository } from '../src/aggregation/retention.repository';
 import { AggregatorController } from '../src/aggregation/aggregator.controller';
 
 const validEvent: RawEvent = {
@@ -35,6 +37,8 @@ describe('AggregatorController (read models)', () => {
   let forget: ReturnType<typeof vi.fn>;
   let increment: ReturnType<typeof vi.fn>;
   let apply: ReturnType<typeof vi.fn>;
+  let funnelApply: ReturnType<typeof vi.fn>;
+  let retentionApply: ReturnType<typeof vi.fn>;
   let publish: ReturnType<typeof vi.fn>;
   let controller: AggregatorController;
 
@@ -43,16 +47,20 @@ describe('AggregatorController (read models)', () => {
     forget = vi.fn().mockResolvedValue(undefined);
     increment = vi.fn().mockResolvedValue(undefined);
     apply = vi.fn().mockResolvedValue(undefined);
+    funnelApply = vi.fn().mockResolvedValue(undefined);
+    retentionApply = vi.fn().mockResolvedValue(undefined);
     publish = vi.fn().mockResolvedValue(undefined);
     controller = new AggregatorController(
       { firstSight, forget } as unknown as DedupStore,
       { increment } as unknown as EventCountsRepository,
       { apply } as unknown as LeaderboardRepository,
+      { apply: funnelApply } as unknown as FunnelRepository,
+      { apply: retentionApply } as unknown as RetentionRepository,
       { publish } as unknown as DeadLetterPublisher,
     );
   });
 
-  it('derives both views for a first-seen valid event and does not dead-letter it', async () => {
+  it('derives all views for a first-seen valid event and does not dead-letter it', async () => {
     await controller.handleRawEvent(validEvent, ctx(JSON.stringify(validEvent)));
 
     expect(firstSight).toHaveBeenCalledWith(validEvent.eventId);
@@ -60,6 +68,10 @@ describe('AggregatorController (read models)', () => {
     expect(increment).toHaveBeenCalledWith(validEvent);
     expect(apply).toHaveBeenCalledTimes(1);
     expect(apply).toHaveBeenCalledWith(validEvent);
+    expect(funnelApply).toHaveBeenCalledTimes(1);
+    expect(funnelApply).toHaveBeenCalledWith(validEvent);
+    expect(retentionApply).toHaveBeenCalledTimes(1);
+    expect(retentionApply).toHaveBeenCalledWith(validEvent);
     expect(publish).not.toHaveBeenCalled();
     expect(forget).not.toHaveBeenCalled();
   });
@@ -72,6 +84,8 @@ describe('AggregatorController (read models)', () => {
     expect(firstSight).toHaveBeenCalledWith(validEvent.eventId);
     expect(increment).not.toHaveBeenCalled();
     expect(apply).not.toHaveBeenCalled();
+    expect(funnelApply).not.toHaveBeenCalled();
+    expect(retentionApply).not.toHaveBeenCalled();
     expect(publish).not.toHaveBeenCalled();
   });
 
@@ -113,6 +127,9 @@ describe('AggregatorController (read models)', () => {
 
     expect(increment).toHaveBeenCalledTimes(1); // counts succeeded once, not re-run
     expect(apply).toHaveBeenCalledTimes(3); // MAX_ATTEMPTS on its own retry
+    // Leaderboard failed before the funnel/retention writers in the fan-out.
+    expect(funnelApply).not.toHaveBeenCalled();
+    expect(retentionApply).not.toHaveBeenCalled();
     expect(forget).toHaveBeenCalledWith(validEvent.eventId);
     expect(publish).toHaveBeenCalledTimes(1);
     const dl = publish.mock.calls[0][0] as DeadLetter;

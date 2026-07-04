@@ -5,6 +5,8 @@ import { DeadLetterPublisher } from './dead-letter.publisher';
 import { DedupStore } from './dedup.store';
 import { EventCountsRepository } from './event-counts.repository';
 import { LeaderboardRepository } from './leaderboard.repository';
+import { FunnelRepository } from './funnel.repository';
+import { RetentionRepository } from './retention.repository';
 
 /** Bounded retry policy for transient (counter-write) failures — see ADR-0006. */
 export const MAX_ATTEMPTS = 3;
@@ -16,11 +18,10 @@ export const RETRY_BASE_MS = 200;
  * independent** consumer of the topic (own `cascade-aggregator` group), parallel
  * to the Ingestion-Processor.
  *
- * As of KAN-32 it derives per-`(project, eventType, time-bucket)` **event
- * counts** (minute + hour) in Cassandra, and as of KAN-34 a per-project **live
- * leaderboard** in Redis sorted sets (ADR-0015 §2). Both are applied in the same
- * valid-event branch; funnels/retention are follow-up tickets that slot in the
- * same way.
+ * It derives per-`(project, eventType, time-bucket)` **event counts** (minute +
+ * hour) in Cassandra (KAN-32), a per-project **live leaderboard** in Redis
+ * sorted sets (KAN-34), and per-actor **funnel** + **retention** summaries in
+ * Postgres (KAN-35) — all applied in the same valid-event branch (ADR-0015 §2).
  *
  * Failure handling mirrors the Ingestion-Processor and the project's DLQ rule
  * (ADR-0006): a message that fails the shared contract is **permanent** —
@@ -42,6 +43,8 @@ export class AggregatorController {
     private readonly dedup: DedupStore,
     private readonly counts: EventCountsRepository,
     private readonly leaderboard: LeaderboardRepository,
+    private readonly funnel: FunnelRepository,
+    private readonly retention: RetentionRepository,
     private readonly deadLetters: DeadLetterPublisher,
   ) {}
 
@@ -81,13 +84,16 @@ export class AggregatorController {
     }
 
     // Transient failure: derive the views with bounded exponential backoff. The
-    // counter `+1` (additive) and the leaderboard `ZADD GT` (best-score) each get
-    // their OWN retry, so a leaderboard hiccup never re-runs the non-idempotent
-    // counter increment. If EITHER ultimately fails, undo the dedup marker (so the
-    // event can be re-derived on a later replay) and dead-letter it.
+    // counter `+1` (additive) and the naturally-idempotent views (leaderboard
+    // `ZADD GT`, funnel `LEAST` upsert, retention set-insert) each get their OWN
+    // retry, so a hiccup in one never re-runs the non-idempotent counter
+    // increment. If ANY ultimately fails, undo the dedup marker (so the event can
+    // be re-derived on a later replay) and dead-letter it.
     try {
       await this.withRetry('Count', event.eventId, () => this.counts.increment(event));
       await this.withRetry('Leaderboard', event.eventId, () => this.leaderboard.apply(event));
+      await this.withRetry('Funnel', event.eventId, () => this.funnel.apply(event));
+      await this.withRetry('Retention', event.eventId, () => this.retention.apply(event));
     } catch (err) {
       await this.dedup.forget(event.eventId);
       await this.deadLetters.publish({
