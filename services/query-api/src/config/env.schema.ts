@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { cassandraConsistencySchema } from '@cascade/contracts';
 
 /**
  * Parses a required, comma-separated env var into a non-empty string array.
@@ -29,6 +30,13 @@ export const queryApiEnvSchema = z.object({
   CASSANDRA_CONTACT_POINTS: csvList,
   CASSANDRA_PORT: z.coerce.number().int().positive(),
   CASSANDRA_LOCAL_DC: z.string().min(1),
+  /**
+   * Read consistency level set explicitly on the driver client (KAN-38,
+   * ADR-0019): `local_quorum` in the cluster. Required (no default — never the
+   * driver default `LOCAL_ONE`). The Query API is read-only and creates no
+   * keyspace, so it takes no replication factor.
+   */
+  CASSANDRA_CONSISTENCY: cassandraConsistencySchema,
   REDIS_HOST: z.string().min(1),
   REDIS_PORT: z.coerce.number().int().positive(),
   DATABASE_URL: z.string().min(1),

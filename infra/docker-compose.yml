@@ -1,25 +1,80 @@
+# Shared env for all three Cassandra nodes (top-level extension field so it is
+# an anchor, not a service). Per-node CASSANDRA_BROADCAST_ADDRESS (the container's
+# own service name) is added per service — with rpc_address defaulting to the
+# 0.0.0.0 wildcard, Cassandra requires a concrete broadcast_rpc_address, which the
+# image derives from it.
+x-cassandra-env: &cassandra-env
+  CASSANDRA_CLUSTER_NAME: cascade-local
+  CASSANDRA_DC: datacenter1
+  CASSANDRA_RACK: rack1
+  CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+  CASSANDRA_SEEDS: cassandra-1
+  MAX_HEAP_SIZE: 512M
+  HEAP_NEWSIZE: 128M
+
 services:
-  cassandra:
+  # --- Cassandra: 3-node cluster (KAN-38, ADR-0019) -------------------------
+  # One datacenter (datacenter1), RF=3 so the keyspace survives one node down
+  # and reads/writes at LOCAL_QUORUM stay available. cassandra-1 is the seed;
+  # 2 and 3 wait for it to be healthy before joining so the ring forms cleanly
+  # (bootstrapping nodes in parallel against an unformed ring is racy). Heap is
+  # trimmed per node to fit three on a dev machine. Use GossipingPropertyFileSnitch
+  # so the DC/rack are honoured (SimpleSnitch would ignore CASSANDRA_DC).
+  cassandra-1:
     image: cassandra:4.1
-    container_name: cascade-cassandra
+    container_name: cascade-cassandra-1
+    restart: on-failure
     ports:
       - '9042:9042'
     environment:
-      CASSANDRA_CLUSTER_NAME: cascade-local
-      # Default SimpleSnitch ignores CASSANDRA_DC, so the datacenter is
-      # "datacenter1". Keep this aligned with clients' localDataCenter.
-      CASSANDRA_DC: datacenter1
-      CASSANDRA_RACK: rack1
-      MAX_HEAP_SIZE: 512M
-      HEAP_NEWSIZE: 128M
+      <<: *cassandra-env
+      CASSANDRA_BROADCAST_ADDRESS: cassandra-1
     healthcheck:
-      test: ['CMD-SHELL', "cqlsh -e 'describe keyspaces' || exit 1"]
+      test: ['CMD-SHELL', "nodetool status | grep -E '^UN' || exit 1"]
       interval: 30s
       timeout: 10s
-      retries: 10
+      retries: 12
       start_period: 90s
     volumes:
-      - cassandra-data:/var/lib/cassandra
+      - cassandra-1-data:/var/lib/cassandra
+
+  cassandra-2:
+    image: cassandra:4.1
+    container_name: cascade-cassandra-2
+    restart: on-failure
+    environment:
+      <<: *cassandra-env
+      CASSANDRA_BROADCAST_ADDRESS: cassandra-2
+    healthcheck:
+      test: ['CMD-SHELL', "nodetool status | grep -E '^UN' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 12
+      start_period: 120s
+    depends_on:
+      cassandra-1:
+        condition: service_healthy
+    volumes:
+      - cassandra-2-data:/var/lib/cassandra
+
+  cassandra-3:
+    image: cassandra:4.1
+    container_name: cascade-cassandra-3
+    restart: on-failure
+    environment:
+      <<: *cassandra-env
+      CASSANDRA_BROADCAST_ADDRESS: cassandra-3
+    healthcheck:
+      test: ['CMD-SHELL', "nodetool status | grep -E '^UN' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 12
+      start_period: 150s
+    depends_on:
+      cassandra-2:
+        condition: service_healthy
+    volumes:
+      - cassandra-3-data:/var/lib/cassandra
 
   # Two listeners (per CLAUDE.md):
   #   PLAINTEXT://kafka:29092     — inter-container (service-to-service)
@@ -157,13 +212,15 @@ services:
       NODE_ENV: production
       PORT: '3003'
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      CASSANDRA_CONTACT_POINTS: cassandra
+      CASSANDRA_CONTACT_POINTS: cassandra-1,cassandra-2,cassandra-3
       CASSANDRA_PORT: '9042'
       CASSANDRA_LOCAL_DC: datacenter1
+      CASSANDRA_REPLICATION_FACTOR: '3'
+      CASSANDRA_CONSISTENCY: local_quorum
     depends_on:
       kafka:
         condition: service_healthy
-      cassandra:
+      cassandra-3:
         condition: service_healthy
     healthcheck:
       test:
@@ -222,13 +279,14 @@ services:
     environment:
       NODE_ENV: production
       PORT: '3002'
-      CASSANDRA_CONTACT_POINTS: cassandra
+      CASSANDRA_CONTACT_POINTS: cassandra-1,cassandra-2,cassandra-3
       CASSANDRA_PORT: '9042'
       CASSANDRA_LOCAL_DC: datacenter1
+      CASSANDRA_CONSISTENCY: local_quorum
       REDIS_HOST: redis
       REDIS_PORT: '6379'
     depends_on:
-      cassandra:
+      cassandra-3:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -262,9 +320,11 @@ services:
       NODE_ENV: production
       PORT: '3005'
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      CASSANDRA_CONTACT_POINTS: cassandra
+      CASSANDRA_CONTACT_POINTS: cassandra-1,cassandra-2,cassandra-3
       CASSANDRA_PORT: '9042'
       CASSANDRA_LOCAL_DC: datacenter1
+      CASSANDRA_REPLICATION_FACTOR: '3'
+      CASSANDRA_CONSISTENCY: local_quorum
       REDIS_HOST: redis
       REDIS_PORT: '6379'
       AGGREGATOR_DEDUP_TTL_SECONDS: '86400'
@@ -273,7 +333,7 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
-      cassandra:
+      cassandra-3:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -293,5 +353,7 @@ services:
       start_period: 30s
 
 volumes:
-  cassandra-data:
+  cassandra-1-data:
+  cassandra-2-data:
+  cassandra-3-data:
   postgres-data:

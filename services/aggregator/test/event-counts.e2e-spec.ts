@@ -76,6 +76,8 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')(
       process.env.CASSANDRA_CONTACT_POINTS = cassandraContainer.getHost();
       process.env.CASSANDRA_PORT = String(cassandraContainer.getMappedPort(9042));
       process.env.CASSANDRA_LOCAL_DC = 'datacenter1';
+      process.env.CASSANDRA_REPLICATION_FACTOR = '1';
+      process.env.CASSANDRA_CONSISTENCY = 'local_quorum';
       process.env.REDIS_HOST = redisContainer.getHost();
       process.env.REDIS_PORT = String(redisContainer.getMappedPort(6379));
       process.env.AGGREGATOR_DEDUP_TTL_SECONDS = '3600';

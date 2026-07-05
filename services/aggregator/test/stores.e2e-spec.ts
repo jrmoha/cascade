@@ -44,6 +44,8 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Aggregator stores (integr
       CASSANDRA_CONTACT_POINTS: [cassandraContainer.getHost()],
       CASSANDRA_PORT: cassandraContainer.getMappedPort(9042),
       CASSANDRA_LOCAL_DC: 'datacenter1',
+      CASSANDRA_REPLICATION_FACTOR: 1,
+      CASSANDRA_CONSISTENCY: 'local_quorum',
       REDIS_HOST: redisContainer.getHost(),
       REDIS_PORT: redisContainer.getMappedPort(6379),
       DATABASE_URL: postgresContainer.getConnectionUri(),

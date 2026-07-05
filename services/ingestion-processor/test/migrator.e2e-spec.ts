@@ -30,13 +30,16 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Migrator (integration)', 
     await container?.stop();
   });
 
+  // Single-node test cluster: NetworkTopologyStrategy with RF=1 (KAN-38).
+  const REPLICATION = { localDc: 'datacenter1', replicationFactor: 1 };
+
   async function appliedIds(): Promise<string[]> {
     const rs = await client.execute(`SELECT id FROM ${KEYSPACE}.schema_migrations`);
     return rs.rows.map((r) => r.get('id') as string).sort();
   }
 
   it('creates the keyspace, tracking table, and raw_events with the expected key', async () => {
-    await new Migrator(client).run();
+    await new Migrator(client, REPLICATION).run();
 
     expect(await appliedIds()).toContain('0001_create_raw_events');
 
@@ -60,9 +63,20 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Migrator (integration)', 
 
   it('is idempotent: a second run applies nothing new', async () => {
     const before = await appliedIds();
-    await new Migrator(client).run();
+    await new Migrator(client, REPLICATION).run();
     const after = await appliedIds();
     expect(after).toEqual(before);
+  });
+
+  it('creates the keyspace with NetworkTopologyStrategy and the configured RF (ADR-0019)', async () => {
+    const rs = await client.execute(
+      `SELECT replication FROM system_schema.keyspaces WHERE keyspace_name = ?`,
+      [KEYSPACE],
+      { prepare: true },
+    );
+    const replication = rs.rows[0].get('replication') as Record<string, string>;
+    expect(replication.class).toBe('org.apache.cassandra.locator.NetworkTopologyStrategy');
+    expect(replication.datacenter1).toBe('1');
   });
 
   it('sets a 30-day default TTL on raw_events', async () => {

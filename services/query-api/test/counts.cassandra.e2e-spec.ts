@@ -50,7 +50,7 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('GET /counts (integration)
     });
     await seed.connect();
     await seed.execute(
-      "CREATE KEYSPACE IF NOT EXISTS cascade WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}",
+      "CREATE KEYSPACE IF NOT EXISTS cascade WITH replication = {'class': 'NetworkTopologyStrategy', 'datacenter1': 1}",
     );
     for (const table of ['event_counts_by_minute', 'event_counts_by_hour']) {
       await seed.execute(`
@@ -80,7 +80,8 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('GET /counts (integration)
     process.env.CASSANDRA_CONTACT_POINTS = host;
     process.env.CASSANDRA_PORT = String(port);
     process.env.CASSANDRA_LOCAL_DC = 'datacenter1';
-
+    process.env.CASSANDRA_REPLICATION_FACTOR = '1';
+    process.env.CASSANDRA_CONSISTENCY = 'local_quorum';
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(

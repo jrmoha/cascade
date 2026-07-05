@@ -1,8 +1,8 @@
-import { ConfigService } from '@nestjs/config';
 import { GenericContainer, type StartedTestContainer, Wait } from 'testcontainers';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { RawEvent } from '@cascade/contracts';
 import { CassandraService } from '../src/cassandra/cassandra.service';
+import type { IngestionConfig } from '../src/config/env.schema';
 import { RawEventRepository } from '../src/processor/raw-event.repository';
 
 // Integration test against a real Cassandra (no mocking the DB, per CLAUDE.md).
@@ -19,11 +19,17 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Ingestion → Cassandra (
       .withWaitStrategy(Wait.forLogMessage(/Starting listening for CQL clients/))
       .start();
 
-    const config = new ConfigService({
-      CASSANDRA_CONTACT_POINTS: container.getHost(),
-      CASSANDRA_PORT: String(container.getMappedPort(9042)),
+    // CassandraService reads APP_CONFIG as a plain parsed config object (post-Zod
+    // shape: contact points already split to an array, port a number), so build
+    // that shape directly rather than a NestJS ConfigService (whose values are
+    // only reachable via `.get()`, not direct property access).
+    const config = {
+      CASSANDRA_CONTACT_POINTS: [container.getHost()],
+      CASSANDRA_PORT: container.getMappedPort(9042),
       CASSANDRA_LOCAL_DC: 'datacenter1',
-    });
+      CASSANDRA_REPLICATION_FACTOR: 1,
+      CASSANDRA_CONSISTENCY: 'local_quorum',
+    } as unknown as IngestionConfig;
 
     cassandra = new CassandraService(config);
     await cassandra.onApplicationBootstrap(); // connect (with retry) + ensure schema

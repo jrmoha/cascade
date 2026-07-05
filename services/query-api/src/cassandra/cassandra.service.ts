@@ -6,6 +6,7 @@ import {
   OnModuleDestroy,
 } from '@nestjs/common';
 import { Client, types } from 'cassandra-driver';
+import { toDriverConsistency } from '@cascade/contracts';
 import { APP_CONFIG } from '../config/config.module';
 import type { QueryApiConfig } from '../config/env.schema';
 
@@ -27,6 +28,9 @@ export class CassandraService implements OnApplicationBootstrap, OnModuleDestroy
       contactPoints: config.CASSANDRA_CONTACT_POINTS,
       protocolOptions: { port: config.CASSANDRA_PORT },
       localDataCenter: config.CASSANDRA_LOCAL_DC,
+      // Explicit read consistency (KAN-38, ADR-0019) — never the driver default
+      // LOCAL_ONE. Applies to every execute() unless a statement overrides it.
+      queryOptions: { consistency: toDriverConsistency(config.CASSANDRA_CONSISTENCY) },
     });
   }
 

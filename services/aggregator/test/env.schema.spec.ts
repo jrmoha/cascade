@@ -6,6 +6,8 @@ const base = {
   CASSANDRA_CONTACT_POINTS: 'localhost',
   CASSANDRA_PORT: '9042',
   CASSANDRA_LOCAL_DC: 'datacenter1',
+  CASSANDRA_REPLICATION_FACTOR: '1',
+  CASSANDRA_CONSISTENCY: 'local_quorum',
   REDIS_HOST: 'localhost',
   REDIS_PORT: '6379',
   DATABASE_URL: 'postgresql://cascade:cascade@localhost:5432/cascade',
@@ -20,6 +22,8 @@ describe('aggregatorEnvSchema', () => {
     expect(cfg.KAFKA_BOOTSTRAP_SERVERS).toEqual(['localhost:9092']);
     expect(cfg.CASSANDRA_CONTACT_POINTS).toEqual(['localhost']);
     expect(cfg.CASSANDRA_PORT).toBe(9042);
+    expect(cfg.CASSANDRA_REPLICATION_FACTOR).toBe(1);
+    expect(cfg.CASSANDRA_CONSISTENCY).toBe('local_quorum');
     expect(cfg.REDIS_PORT).toBe(6379);
     expect(cfg.AGGREGATOR_DEDUP_TTL_SECONDS).toBe(86400);
     expect(cfg.AGGREGATOR_LEADERBOARD_DAILY_TTL_SECONDS).toBe(172800);

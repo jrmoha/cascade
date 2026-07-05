@@ -21,7 +21,10 @@ async function main(): Promise<void> {
   });
   try {
     await client.connect();
-    await new Migrator(client).run();
+    await new Migrator(client, {
+      localDc: config.CASSANDRA_LOCAL_DC,
+      replicationFactor: config.CASSANDRA_REPLICATION_FACTOR,
+    }).run();
   } finally {
     await client.shutdown();
   }
