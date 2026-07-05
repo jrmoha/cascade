@@ -3,6 +3,7 @@ import { zodToJsonSchema } from 'zod-to-json-schema';
 import { collectEventSchema, rawEventSchema } from '../src/events';
 import { funnelResponseSchema } from '../src/funnel';
 import { retentionResponseSchema } from '../src/retention';
+import { countsResponseSchema } from '../src/counts';
 import {
   eventSchemaSchema,
   registerEventSchemaSchema,
@@ -34,6 +35,7 @@ describe('contract compatibility snapshot', () => {
       registerEventSchema: zodToJsonSchema(registerEventSchemaSchema, 'registerEventSchema'),
       funnelResponse: zodToJsonSchema(funnelResponseSchema, 'funnelResponse'),
       retentionResponse: zodToJsonSchema(retentionResponseSchema, 'retentionResponse'),
+      countsResponse: zodToJsonSchema(countsResponseSchema, 'countsResponse'),
     };
 
     expect(contracts).toMatchSnapshot();

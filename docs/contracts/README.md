@@ -18,14 +18,36 @@ Zod gives one schema that is both the runtime validator and the static type, so 
 
 ## Index
 
-| Contract                               | Surface                                  | Spec / source                                                                                                                                                                                                       |
-| -------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`RawEvent` / `raw-events`](events.md) | Kafka envelope (Collector → Processor)   | [`events.ts`](../../libs/contracts/src/events.ts) · [collector.openapi.yaml](../specs/collector.openapi.yaml)                                                                                                       |
-| [Project/Schema](project-schema.md)    | REST admin + **gRPC** sync (→ Collector) | [`project-schema.ts`](../../libs/contracts/src/project-schema.ts) · [`project_schema.proto`](../../libs/contracts/proto/project_schema.proto) · [project-schema.openapi.yaml](../specs/project-schema.openapi.yaml) |
-| Query API (raw read-back)              | REST read path                           | [query-api.openapi.yaml](../specs/query-api.openapi.yaml)                                                                                                                                                           |
-| Dead letters (`*.dlq`)                 | Kafka DLQ envelope                       | [`dead-letter.ts`](../../libs/contracts/src/dead-letter.ts)                                                                                                                                                         |
+| Contract                               | Surface                                  | Spec / source                                                                                                                                                                                                                                                                             |
+| -------------------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`RawEvent` / `raw-events`](events.md) | Kafka envelope (Collector → Processor)   | [`events.ts`](../../libs/contracts/src/events.ts) · [collector.openapi.yaml](../specs/collector.openapi.yaml)                                                                                                                                                                             |
+| [Project/Schema](project-schema.md)    | REST admin + **gRPC** sync (→ Collector) | [`project-schema.ts`](../../libs/contracts/src/project-schema.ts) · [`project_schema.proto`](../../libs/contracts/proto/project_schema.proto) · [project-schema.openapi.yaml](../specs/project-schema.openapi.yaml)                                                                       |
+| Query API — analytics reads            | REST read path (derived views)           | [`counts.ts`](../../libs/contracts/src/counts.ts) · [`leaderboard.ts`](../../libs/contracts/src/leaderboard.ts) · [`funnel.ts`](../../libs/contracts/src/funnel.ts) · [`retention.ts`](../../libs/contracts/src/retention.ts) · [query-api.openapi.yaml](../specs/query-api.openapi.yaml) |
+| Query API — raw read-back              | REST read path (bounded retrieval)       | [query-api.openapi.yaml](../specs/query-api.openapi.yaml)                                                                                                                                                                                                                                 |
+| Dead letters (`*.dlq`)                 | Kafka DLQ envelope                       | [`dead-letter.ts`](../../libs/contracts/src/dead-letter.ts)                                                                                                                                                                                                                               |
 
 OpenAPI specs for the HTTP/edge surfaces live under [`docs/specs/`](../specs/).
+
+### Query API analytics reads (CQRS read side)
+
+The Query API's analytics endpoints are served **only** from the Aggregator's derived views —
+never by scanning raw events (the CQRS boundary, enforced by an architecture test; see
+[ADR-0018](../adr/0018-enforce-cqrs-read-boundary.md)):
+
+| Endpoint                                | Derived view (store)                              | Contract                              |
+| --------------------------------------- | ------------------------------------------------- | ------------------------------------- |
+| `GET /counts`                           | `event_counts_by_minute` / `_by_hour` (Cassandra) | `countsResponse`                      |
+| `GET /leaderboard`, `/leaderboard/rank` | `lb:{projectId}:{period}` sorted sets (Redis)     | `topNResponse` / `playerRankResponse` |
+| `GET /funnel`                           | `funnel_actor_steps` (Postgres)                   | `funnelResponse`                      |
+| `GET /retention`                        | `retention_actor_activity` (Postgres)             | `retentionResponse`                   |
+
+`GET /query` (bounded raw retrieval, [ADR-0008](../adr/0008-raw-event-time-range-read.md)) is
+**not** analytics — it is the one sanctioned raw read, for replay/audit/debug.
+
+> **Eventually consistent (expected, not a bug).** Every analytics read reflects only events
+> the Aggregator has already processed, so it can lag ingestion by the Aggregator's processing
+> latency (seconds). This decoupling is the point: ingestion can spike without slowing reads,
+> which hit small pre-computed views rather than the firehose.
 
 ## Versioning & compatibility
 

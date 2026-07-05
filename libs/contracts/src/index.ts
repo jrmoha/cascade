@@ -4,6 +4,7 @@ export * from './time-window';
 export * from './leaderboard';
 export * from './funnel';
 export * from './retention';
+export * from './counts';
 export * from './project-schema';
 export * from './grpc';
 
