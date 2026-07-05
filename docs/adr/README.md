@@ -33,6 +33,7 @@ ADRs follow the [MADR](https://adr.github.io/madr/) lightweight template:
 | [0016](0016-idempotent-replayable-aggregation.md)        | Idempotent & replayable aggregation (the keystone): dedup key, offset commit, rebuild, proof | Accepted             |
 | [0017](0017-funnel-and-retention-views.md)               | Funnel & retention derived views (Postgres; query-time funnel, naturally-idempotent upserts) | Accepted             |
 | [0018](0018-enforce-cqrs-read-boundary.md)               | Enforce the CQRS read boundary; counts read endpoint (arch-test guardrail, bounded fan-out)  | Accepted             |
+| [0019](0019-replication-and-consistency-model.md)        | Replication & consistency model (Cassandra NTS/RF3/LOCAL_QUORUM; Postgres primary + replica) | Accepted             |
 
 ## Creating a new ADR
 

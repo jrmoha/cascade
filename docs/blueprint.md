@@ -65,6 +65,10 @@ The Query API **never** scans raw Cassandra data live. All queries are served fr
 
 Every Cassandra table is designed for a specific query. Partition keys include `project_id + time_bucket` to keep partitions bounded. No table is added without a stated query and partition strategy. See ADR-0007 for the `raw_events` model.
 
+### Replication & consistency
+
+Each store's replication topology and consistency levels are a deliberate choice, not a default. **Cassandra:** `NetworkTopologyStrategy`, RF=3, read/write `LOCAL_QUORUM` (`R+W>RF` ⇒ strong within a DC, survives one node down; `LOCAL_QUORUM` even single-region so multi-region is config-only). **Postgres:** primary + async read-replica, with read-after-write/config reads routed to the primary and eventually-consistent analytics reads to the replica under a bounded-lag policy. See [ADR-0019](adr/0019-replication-and-consistency-model.md) (applied by the Phase-4 tickets KAN-38/39/41).
+
 ### Kafka consumers: idempotency
 
 Both consumers (Ingestion-Processor and Aggregator) must be idempotent. Kafka delivers at-least-once; re-processing the same event must not double-count or duplicate rows. Deduplication is by event ID + time bucket.
