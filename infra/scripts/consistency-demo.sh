@@ -21,13 +21,12 @@
 # Prereqs: `make up` (the cluster is healthy) and Docker. Usage: ./consistency-demo.sh
 set -euo pipefail
 
-KS=consistency_demo
-N1=cascade-cassandra-1
-N2=cascade-cassandra-2
-N3=cascade-cassandra-3
+# Shared helpers (cql, wait_ring, wait_cql) + the N1/N2/N3 container names.
+# shellcheck source=infra/scripts/cassandra-lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/cassandra-lib.sh"
 
-# Run a CQL statement, coordinated by the given node's container.
-cql() { docker exec -i "$1" cqlsh -e "$2"; }
+KS=consistency_demo
+
 # Portable epoch-millis (macOS `date` has no %N; python3 works on both).
 now_ms() { python3 -c 'import time; print(int(time.time()*1000))'; }
 # Time a CQL statement (wall-clock ms, incl. cqlsh startup — the delta between
@@ -53,23 +52,6 @@ cleanup() {
   rm -f /tmp/cql_out.$$
 }
 trap cleanup EXIT
-
-wait_ring() { # wait until node 1 sees all 3 nodes UN
-  local i n
-  for i in $(seq 1 60); do
-    n=$(docker exec "$N1" nodetool status 2>/dev/null | grep -cE '^UN' || echo 0)
-    [ "$n" = "3" ] && return 0
-    sleep 3
-  done
-}
-
-wait_cql() { # wait until the node's native transport (cqlsh) accepts queries
-  local node="$1" i
-  for i in $(seq 1 60); do
-    docker exec -i "$node" cqlsh -e "SELECT now() FROM system.local;" >/dev/null 2>&1 && return 0
-    sleep 3
-  done
-}
 
 echo "=================================================================="
 echo " Cassandra consistency demo (ONE vs QUORUM) — ADR-0019"
@@ -103,7 +85,7 @@ cql "$N1" "CONSISTENCY ALL; SELECT v FROM ${KS}.kv WHERE k='demo';" 2>&1 \
 
 echo -e "\n## 4. Bring node 3 back (it holds v1; nodes 1 & 2 hold v2)"
 docker start "$N3" >/dev/null
-wait_ring; wait_cql "$N3"; sleep 2
+wait_ring "$N1"; wait_cql "$N3"; sleep 2
 
 echo -e "\n## 5. With ALL nodes up, CONSISTENCY QUORUM is FRESH (2 of 3 agree on v2)"
 val_quorum=$(cql "$N1" "CONSISTENCY QUORUM; SELECT v FROM ${KS}.kv WHERE k='demo';" 2>/dev/null \
@@ -132,5 +114,5 @@ echo "   R + W > RF  ⇒  2 + 2 > 3  ⇒  strong: a QUORUM read always overlaps 
 echo "   ONE trades consistency for availability/latency; QUORUM trades availability for consistency."
 
 echo -e "\n## 8. Restore nodes 1 & 2; cleanup (repair + drop ${KS}) runs on the EXIT trap."
-docker start "$N1" "$N2" >/dev/null; wait_ring
+docker start "$N1" "$N2" >/dev/null; wait_ring "$N1"
 echo "done."

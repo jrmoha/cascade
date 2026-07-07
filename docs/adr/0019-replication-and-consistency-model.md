@@ -143,6 +143,12 @@ is later a configuration exercise, not a redesign.
 - **Implementation is deferred and now has a spec to build to:** KAN-38 provisions the multi-node
   keyspace and sets explicit client consistency levels; KAN-39 proves node-loss survival against
   these levels; KAN-41 stands up the Postgres replica and read routing. Each cites this ADR.
+- **Node-loss survival is now proven, not assumed** (delivered in **KAN-39**): under continuous
+  `cassandra-stress` load at `LOCAL_QUORUM`, killing one of the three nodes causes **0 errors**
+  (quorum = 2 of 3 stays reachable); the node rejoins and catches up via hinted handoff / repair;
+  and a **second** node down deterministically returns `Unavailable` — the chosen CAP boundary
+  (§1), not a defect. Repeatable via `infra/scripts/node-down-chaos.sh`; see
+  `docs/runbooks/cassandra-node-down.md`. The Postgres replica half (§2) remains KAN-41.
 - **Clients set consistency explicitly** (delivered in **KAN-38**): all three Cassandra clients now
   set `queryOptions.consistency` from `CASSANDRA_CONSISTENCY` (`local_quorum`) — never the driver
   default `LOCAL_ONE` — and the keyspace is created `NetworkTopologyStrategy` with RF from
