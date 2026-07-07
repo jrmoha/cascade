@@ -7,12 +7,14 @@ routed to a dead-letter topic — see [dlq.md](dlq.md).
 
 ## Configuration
 
-| Env var                    | Default          | Notes                                                                                               |
-| -------------------------- | ---------------- | --------------------------------------------------------------------------------------------------- |
-| `KAFKA_BOOTSTRAP_SERVERS`  | `localhost:9092` | `localhost:9092` from host, `kafka:29092` in-container.                                             |
-| `CASSANDRA_CONTACT_POINTS` | `localhost`      | Comma-separated. `cassandra:9042` in-container.                                                     |
-| `CASSANDRA_PORT`           | `9042`           |                                                                                                     |
-| `CASSANDRA_LOCAL_DC`       | `datacenter1`    | Must match the cluster's datacenter. With the default SimpleSnitch it is `datacenter1` (NOT `dc1`). |
+| Env var                        | Default          | Notes                                                                                                            |
+| ------------------------------ | ---------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `KAFKA_BOOTSTRAP_SERVERS`      | `localhost:9092` | `localhost:9092` from host, `kafka:29092` in-container.                                                          |
+| `CASSANDRA_CONTACT_POINTS`     | _required_       | Comma-separated. `cassandra-1,cassandra-2,cassandra-3` in-container.                                             |
+| `CASSANDRA_PORT`               | `9042`           |                                                                                                                  |
+| `CASSANDRA_LOCAL_DC`           | `datacenter1`    | Must match the cluster's datacenter. With the default SimpleSnitch it is `datacenter1` (NOT `dc1`).              |
+| `CASSANDRA_REPLICATION_FACTOR` | _required_       | Keyspace RF for NetworkTopologyStrategy (KAN-38/ADR-0019). `3` in the cluster, `1` single-node. RF ≤ node count. |
+| `CASSANDRA_CONSISTENCY`        | _required_       | Read/write consistency level (`local_quorum`); set explicitly on the driver, never `LOCAL_ONE`.                  |
 
 ## Schema & migrations
 
@@ -41,14 +43,15 @@ npm run migrate -w @cascade/ingestion-processor   # idempotent; re-running appli
 ## Run locally
 
 ```bash
-make up   # ensure cassandra + kafka are healthy
-docker inspect -f '{{.State.Health.Status}}' cascade-cassandra   # -> healthy
+make up   # ensure the 3-node cassandra cluster + kafka are healthy
+docker exec cascade-cassandra-1 nodetool status   # -> 3x UN (see cassandra-cluster.md)
 
 npm run build -w @cascade/contracts
 npm run build -w @cascade/ingestion-processor
 npm run start:dev -w @cascade/ingestion-processor
-# or: KAFKA_BOOTSTRAP_SERVERS=localhost:9092 CASSANDRA_CONTACT_POINTS=localhost \
-#     node services/ingestion-processor/dist/main.js
+# or: KAFKA_BOOTSTRAP_SERVERS=localhost:9092 \
+#     CASSANDRA_CONTACT_POINTS=localhost CASSANDRA_REPLICATION_FACTOR=1 \
+#     CASSANDRA_CONSISTENCY=local_quorum node services/ingestion-processor/dist/main.js
 ```
 
 The consumer group starts at the latest offset, so start the processor **before**
@@ -65,7 +68,7 @@ curl -s -X POST localhost:3001/collect -H 'content-type: application/json' \
   -d '{"projectId":"kan18-demo","type":"boss_defeated","payload":{"boss":"dragon"}}'
 
 # 4. read it back (use the full partition key — project_id + the hourly window)
-docker exec cascade-cassandra cqlsh -e \
+docker exec cascade-cassandra-1 cqlsh -e \
   "SELECT * FROM cascade.raw_events WHERE project_id='kan18-demo' AND time_bucket='$(date -u +%Y-%m-%dT%H)';"
 ```
 

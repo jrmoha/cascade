@@ -13,12 +13,23 @@ export const KEYSPACE = 'cascade';
  */
 const MIGRATIONS_DIR = resolve(__dirname, '../../migrations');
 
-// Local/dev keyspace only: SimpleStrategy RF=1. Real environments provision the
-// keyspace with NetworkTopologyStrategy out-of-band (infra), so it is bootstrap,
-// not a versioned schema migration.
-const CREATE_KEYSPACE = `
-  CREATE KEYSPACE IF NOT EXISTS ${KEYSPACE}
-  WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}`;
+/** Replication topology for keyspace creation (KAN-38, ADR-0019). */
+export interface KeyspaceReplication {
+  /** The local datacenter name (`CASSANDRA_LOCAL_DC`). */
+  localDc: string;
+  /** Replication factor for that DC (`CASSANDRA_REPLICATION_FACTOR`). */
+  replicationFactor: number;
+}
+
+// Keyspace bootstrap uses NetworkTopologyStrategy with the DC + RF from config
+// (ADR-0019): production-correct (rack/DC-aware, multi-region-ready) over
+// SimpleStrategy, and the same DDL on the single-node dev/test keyspace (RF=1).
+// This is bootstrap, not a versioned schema migration.
+function createKeyspaceCql({ localDc, replicationFactor }: KeyspaceReplication): string {
+  return `
+    CREATE KEYSPACE IF NOT EXISTS ${KEYSPACE}
+    WITH replication = {'class': 'NetworkTopologyStrategy', '${localDc}': ${replicationFactor}}`;
+}
 
 const CREATE_MIGRATIONS_TABLE = `
   CREATE TABLE IF NOT EXISTS ${KEYSPACE}.schema_migrations (
@@ -39,11 +50,12 @@ export class Migrator {
 
   constructor(
     private readonly client: Client,
+    private readonly replication: KeyspaceReplication,
     private readonly migrationsDir: string = MIGRATIONS_DIR,
   ) {}
 
   async run(): Promise<void> {
-    await this.client.execute(CREATE_KEYSPACE);
+    await this.client.execute(createKeyspaceCql(this.replication));
     await this.client.execute(CREATE_MIGRATIONS_TABLE);
 
     const applied = await this.appliedIds();

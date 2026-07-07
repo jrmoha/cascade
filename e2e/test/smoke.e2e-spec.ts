@@ -88,6 +88,8 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Walking-skeleton smoke (e
     process.env.CASSANDRA_CONTACT_POINTS = cassandra.getHost();
     process.env.CASSANDRA_PORT = String(cassandra.getMappedPort(9042));
     process.env.CASSANDRA_LOCAL_DC = 'datacenter1';
+    process.env.CASSANDRA_REPLICATION_FACTOR = '1';
+    process.env.CASSANDRA_CONSISTENCY = 'local_quorum';
     process.env.DATABASE_URL = postgres.getConnectionUri();
     process.env.GRPC_URL = PROJECT_SCHEMA_GRPC_ADDR;
     process.env.REDIS_HOST = redis.getHost();

@@ -59,7 +59,8 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Ingestion DLQ (integratio
     process.env.CASSANDRA_CONTACT_POINTS = cassandra.getHost();
     process.env.CASSANDRA_PORT = String(cassandra.getMappedPort(9042));
     process.env.CASSANDRA_LOCAL_DC = 'datacenter1';
-
+    process.env.CASSANDRA_REPLICATION_FACTOR = '1';
+    process.env.CASSANDRA_CONSISTENCY = 'local_quorum';
     // A throwaway client to read rows back (the processor owns the schema/writes).
     seed = new Client({
       contactPoints: [cassandra.getHost()],

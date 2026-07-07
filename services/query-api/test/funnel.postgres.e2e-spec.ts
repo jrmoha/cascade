@@ -34,6 +34,8 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('Query API funnel (integra
     process.env.CASSANDRA_CONTACT_POINTS = 'localhost';
     process.env.CASSANDRA_PORT = '9042';
     process.env.CASSANDRA_LOCAL_DC = 'datacenter1';
+    process.env.CASSANDRA_REPLICATION_FACTOR = '1';
+    process.env.CASSANDRA_CONSISTENCY = 'local_quorum';
     process.env.REDIS_HOST = 'localhost';
     process.env.REDIS_PORT = '6379';
     process.env.DATABASE_URL = pgContainer.getConnectionUri();

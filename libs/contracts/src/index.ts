@@ -5,6 +5,7 @@ export * from './leaderboard';
 export * from './funnel';
 export * from './retention';
 export * from './counts';
+export * from './cassandra';
 export * from './project-schema';
 export * from './grpc';
 

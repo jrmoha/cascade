@@ -143,9 +143,11 @@ is later a configuration exercise, not a redesign.
 - **Implementation is deferred and now has a spec to build to:** KAN-38 provisions the multi-node
   keyspace and sets explicit client consistency levels; KAN-39 proves node-loss survival against
   these levels; KAN-41 stands up the Postgres replica and read routing. Each cites this ADR.
-- **Clients must set consistency explicitly.** Today they rely on the driver default (`LOCAL_ONE`);
-  KAN-38 must set `LOCAL_QUORUM` on the cassandra-driver clients (and per-query overrides for the
-  sanctioned `LOCAL_ONE` retrieval read), because the default is not the decided level.
+- **Clients set consistency explicitly** (delivered in **KAN-38**): all three Cassandra clients now
+  set `queryOptions.consistency` from `CASSANDRA_CONSISTENCY` (`local_quorum`) — never the driver
+  default `LOCAL_ONE` — and the keyspace is created `NetworkTopologyStrategy` with RF from
+  `CASSANDRA_REPLICATION_FACTOR`. The level/RF names are the shared `cassandraConsistencySchema`
+  contract in `@cascade/contracts`. See `docs/runbooks/cassandra-cluster.md`.
 - No behaviour changes in this ticket — docs only. `docs/blueprint.md` gains a Replication &
   consistency pointer and `CLAUDE.md` records the policy so Phase-4 work honours it.
 

@@ -99,9 +99,10 @@ wider than 168 buckets, or a malformed/mismatched `cursor`. An unknown
 | Env var                    | Default       | Notes                                                                                               |
 | -------------------------- | ------------- | --------------------------------------------------------------------------------------------------- |
 | `PORT`                     | `3002`        | HTTP listen port.                                                                                   |
-| `CASSANDRA_CONTACT_POINTS` | _required_    | Comma-separated. `cassandra:9042` in-container. Serves `/counts` + `/query`.                        |
+| `CASSANDRA_CONTACT_POINTS` | _required_    | Comma-separated. `cassandra-1,cassandra-2,cassandra-3` in-container. Serves `/counts` + `/query`.   |
 | `CASSANDRA_PORT`           | `9042`        |                                                                                                     |
 | `CASSANDRA_LOCAL_DC`       | `datacenter1` | Must match the cluster's datacenter. With the default SimpleSnitch it is `datacenter1` (NOT `dc1`). |
+| `CASSANDRA_CONSISTENCY`    | _required_    | Read consistency level (`local_quorum`); set explicitly on the driver (KAN-38/ADR-0019).            |
 | `REDIS_HOST`               | _required_    | Redis host. Serves `/leaderboard` + `/leaderboard/rank`.                                            |
 | `REDIS_PORT`               | `6379`        |                                                                                                     |
 | `DATABASE_URL`             | _required_    | Postgres connection string (read-only pool). Serves `/funnel` + `/retention`.                       |
@@ -116,8 +117,8 @@ to create anything. All three stores are readiness deps — `GET /ready` returns
 ## Run locally
 
 ```bash
-make up   # ensure cassandra is healthy
-docker inspect -f '{{.State.Health.Status}}' cascade-cassandra   # -> healthy
+make up   # ensure the 3-node cassandra cluster is healthy
+docker exec cascade-cassandra-1 nodetool status   # -> 3x UN (see cassandra-cluster.md)
 
 npm run build -w @cascade/contracts
 npm run build -w @cascade/query-api
