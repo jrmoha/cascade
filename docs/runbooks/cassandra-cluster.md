@@ -76,9 +76,11 @@ reachable.
 ## Losing a node
 
 With RF=3 + `LOCAL_QUORUM`, the cluster **keeps serving** reads and writes with one node down
-(quorum = 2 of 3). Proving that survival end-to-end — stop a node, keep ingesting and reading — is
-the **chaos gate in [KAN-39](https://dash34.atlassian.net/browse/KAN-39)**; this ticket makes the
-topology and the knob real, KAN-39 exercises the failure.
+(quorum = 2 of 3). That survival is **proven end-to-end in [KAN-39](https://dash34.atlassian.net/browse/KAN-39)**:
+`./infra/scripts/node-down-chaos.sh` drives continuous `cassandra-stress` load, kills a node
+mid-run (0 errors), then shows it rejoin and catch up (hinted handoff / repair) and exactly where
+tolerance ends (a second node down = `Unavailable`). See the
+[**cassandra-node-down.md**](./cassandra-node-down.md) runbook.
 
 ## Notes
 
