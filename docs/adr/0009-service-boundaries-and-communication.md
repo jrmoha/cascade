@@ -74,15 +74,21 @@ ADR; "it was easier" is not one. Async fan-out is never modelled as a chain of s
 Topic names are defined once in `@cascade/contracts` (`libs/contracts/src/events.ts`) and imported
 everywhere — never re-typed as string literals.
 
-| Topic            | Producer                        | Consumer(s)                                           | Partition key |
-| ---------------- | ------------------------------- | ----------------------------------------------------- | ------------- |
-| `raw-events`     | Collector                       | Ingestion-Processor; Aggregator _(skeleton)_          | `projectId`   |
-| `raw-events.dlq` | Ingestion-Processor, Aggregator | Ad-hoc (inspection/replay tooling — no live consumer) | `projectId`   |
+| Topic            | Producer                        | Consumer(s)                                           | Partitions / RF | Partition key                     |
+| ---------------- | ------------------------------- | ----------------------------------------------------- | --------------- | --------------------------------- |
+| `raw-events`     | Collector                       | Ingestion-Processor; Aggregator                       | 6 / 3           | `sessionId ?? actorId ?? eventId` |
+| `raw-events.dlq` | Ingestion-Processor, Aggregator | Ad-hoc (inspection/replay tooling — no live consumer) | 3 / 3           | `projectId`                       |
 
-`projectId` as the partition key keeps a project's events ordered on one partition and co-locates
-them for downstream processing (see [ADR-0002](0002-collector-kafka-production.md)). Dead-lettering
-is defined in [ADR-0006](0006-dead-letter-handling.md). Each consumer uses its **own** consumer
-group, so adding the Aggregator never disturbs the Ingestion-Processor.
+As of **KAN-40** ([ADR-0020](0020-kafka-partitioning-and-scaling.md)) `raw-events` is **6 partitions,
+RF=3** on a 3-broker cluster, and the partition key is **`sessionId ?? actorId ?? eventId`** (was
+`projectId`): a **session** stays ordered on one partition while a busy project spreads across all
+partitions so consumers can scale (per-project global order was never needed, and the Aggregator's
+writes are commutative — [ADR-0016](0016-idempotent-replayable-aggregation.md)). The DLQ stays keyed
+by `projectId` (low volume, co-locate a project's dead letters). Dead-lettering is defined in
+[ADR-0006](0006-dead-letter-handling.md). Each consumer uses its **own** consumer group and now runs
+as **multiple instances** in that group (partitions distribute across them; NestJS `ServerKafka`
+postfixes the broker-side group id with `-server`). Adding the Aggregator never disturbs the
+Ingestion-Processor.
 
 ### 4. Sync-call inventory
 

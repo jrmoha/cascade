@@ -187,8 +187,9 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('POST /collect (ingest int
     expect(res.body.status).toBe('accepted');
 
     const msg = await waitFor(() => received.find((m) => m.value.eventId === res.body.eventId));
-    expect(msg.key).toBe(PROJECT_ID);
-    expect(msg.value.projectId).toBe(PROJECT_ID); // derived from the key, not the body
+    // Partition key falls back to eventId here (no sessionId/actorId sent) — KAN-40.
+    expect(msg.key).toBe(res.body.eventId);
+    expect(msg.value.projectId).toBe(PROJECT_ID); // projectId derived from the API key, not the body
     expect(msg.value.type).toBe('level_complete');
     expect(msg.value.payload).toEqual({ level: 7 });
   });

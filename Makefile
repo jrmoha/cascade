@@ -1,4 +1,4 @@
-.PHONY: up down down-v logs ps stack-up stack-down stack-build
+.PHONY: up down down-v logs ps stack-up stack-down stack-build stack-scale
 
 # Infra only (backing stores) — the workflow tests/smoke rely on.
 up:
@@ -23,6 +23,16 @@ stack-build:
 
 stack-up:
 	docker compose -f infra/docker-compose.yml --profile apps up -d --build
+
+# Scale the two consumer groups horizontally (KAN-40): 3 Ingestion-Processor and
+# 2 Aggregator replicas share their consumer group; `raw-events` partitions
+# distribute across them. Override counts inline, e.g.
+#   make stack-scale IP=6 AGG=3
+IP ?= 3
+AGG ?= 2
+stack-scale:
+	docker compose -f infra/docker-compose.yml --profile apps up -d --build \
+		--scale ingestion-processor=$(IP) --scale aggregator=$(AGG)
 
 stack-down:
 	docker compose -f infra/docker-compose.yml --profile apps down
