@@ -26,7 +26,11 @@ const ACKS = Number(process.env.ACKS ?? -1);
 const TOPIC = 'raw-events'; // = @cascade/contracts RAW_EVENTS_TOPIC (shell/mjs can't import TS)
 const BATCH = 1000;
 
-const kafka = new Kafka({ clientId: 'cascade-kafka-load', brokers: BROKERS, logLevel: logLevel.ERROR });
+const kafka = new Kafka({
+  clientId: 'cascade-kafka-load',
+  brokers: BROKERS,
+  logLevel: logLevel.ERROR,
+});
 // DefaultPartitioner = Java-compatible murmur2(key) — same as the Collector/ADR-0002.
 const producer = kafka.producer({ createPartitioner: Partitioners.DefaultPartitioner });
 
