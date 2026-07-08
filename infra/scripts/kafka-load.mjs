@@ -1,3 +1,4 @@
+/* eslint-disable no-undef */
 // kafka-load.mjs — KAN-40 / ADR-0020
 //
 // Synthetic load generator for the partitioning / scaling demo. Produces valid
