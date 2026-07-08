@@ -28,8 +28,12 @@ export class CollectorService implements OnApplicationBootstrap {
 
   /**
    * Enrich the inbound event into the canonical RawEvent envelope and publish
-   * it to `raw-events`, keyed by projectId so a project's events keep ordering
-   * and land on the same partition.
+   * it to `raw-events`, keyed by `sessionId ?? actorId ?? eventId` so a single
+   * session's events keep ordering on one partition while a busy project's load
+   * spreads across all partitions — the ordering guarantee the KAN-35 funnels
+   * rely on, and the throughput scaling of KAN-40 (ADR-0020). `eventId` is always
+   * present, so the key is never undefined; the per-project analytics stay correct
+   * because every Aggregator write is commutative/idempotent (ADR-0016).
    *
    * `projectId` is the authenticated project resolved from the API key (KAN-30),
    * not anything the client sent. Before building the envelope we validate the
@@ -65,7 +69,7 @@ export class CollectorService implements OnApplicationBootstrap {
 
     await lastValueFrom(
       this.client.emit(RAW_EVENTS_TOPIC, {
-        key: event.projectId,
+        key: event.sessionId ?? event.actorId ?? event.eventId,
         value: JSON.stringify(event),
       }),
     );

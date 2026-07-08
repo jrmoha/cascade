@@ -27,7 +27,9 @@ export const RAW_EVENT_SCHEMA_VERSION = 1;
  *
  * Producers (Collector) validate before publishing to `raw-events`; consumers
  * (Ingestion-Processor) validate on receipt. The Kafka message key is
- * `projectId`, so all events for a project land on the same partition.
+ * `sessionId ?? actorId ?? eventId` (KAN-40, ADR-0020): a session's events stay
+ * ordered on one partition while a busy project spreads across partitions so
+ * consumers can scale.
  *
  * `.strict()` rejects unknown keys, mirroring the Collector's HTTP-boundary
  * `forbidNonWhitelisted` behaviour and keeping the wire envelope closed.

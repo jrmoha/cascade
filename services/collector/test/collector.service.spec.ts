@@ -35,13 +35,32 @@ describe('CollectorService', () => {
     return { key: message.key, value: JSON.parse(message.value) as RawEvent };
   }
 
-  it('produces to the raw-events topic keyed by the authenticated projectId', async () => {
+  it('produces to the raw-events topic with the derived projectId in the envelope', async () => {
     await service.collect(PROJECT_ID, baseInput());
-    const { key, value } = publishedEvent();
-    expect(key).toBe('game-1');
+    const { value } = publishedEvent();
     expect(value.projectId).toBe('game-1');
     expect(value.type).toBe('level_complete');
     expect(value.payload).toEqual({ level: 3 });
+  });
+
+  // Partition key = sessionId ?? actorId ?? eventId (KAN-40, ADR-0020) — per-session
+  // ordering, load spread across partitions, and never undefined.
+  it('keys the message by sessionId when present', async () => {
+    const dto = Object.assign(baseInput(), { sessionId: 'sess-9', actorId: 'player-42' });
+    await service.collect(PROJECT_ID, dto);
+    expect(publishedEvent().key).toBe('sess-9');
+  });
+
+  it('falls back to actorId when there is no sessionId', async () => {
+    const dto = Object.assign(baseInput(), { actorId: 'player-42' });
+    await service.collect(PROJECT_ID, dto);
+    expect(publishedEvent().key).toBe('player-42');
+  });
+
+  it('falls back to eventId when there is neither sessionId nor actorId', async () => {
+    await service.collect(PROJECT_ID, baseInput());
+    const { key, value } = publishedEvent();
+    expect(key).toBe(value.eventId);
   });
 
   it('validates the payload against the project schema before producing', async () => {
