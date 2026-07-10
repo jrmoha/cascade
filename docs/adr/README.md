@@ -34,6 +34,8 @@ ADRs follow the [MADR](https://adr.github.io/madr/) lightweight template:
 | [0017](0017-funnel-and-retention-views.md)               | Funnel & retention derived views (Postgres; query-time funnel, naturally-idempotent upserts) | Accepted             |
 | [0018](0018-enforce-cqrs-read-boundary.md)               | Enforce the CQRS read boundary; counts read endpoint (arch-test guardrail, bounded fan-out)  | Accepted             |
 | [0019](0019-replication-and-consistency-model.md)        | Replication & consistency model (Cassandra NTS/RF3/LOCAL_QUORUM; Postgres primary + replica) | Accepted             |
+| [0020](0020-kafka-partitioning-and-scaling.md)           | Kafka partitioning & consumer-group scaling (3 brokers, 6 partitions/RF3, session-keyed)     | Accepted             |
+| [0021](0021-typescript-7-native-trial.md)                | Trial TypeScript 7 (native compiler) as a non-gating typecheck (nodenext, tsgo CI canary)    | Accepted             |
 
 ## Creating a new ADR
 

@@ -60,3 +60,28 @@ jobs:
         run: npm run test:ci
         env:
           SKIP_INTEGRATION: '1'
+
+  # Informational only (KAN-43, ADR-0021): runs the TypeScript 7 native compiler
+  # (tsgo) over the same project graph as `verify`'s `tsc --build`. Kept
+  # non-gating (`continue-on-error`) until typescript-eslint ships TS7 support
+  # (TS 7.1) and we can make the native compiler the source of truth. `tsc`
+  # remains the real gate; this job is a fast-feedback canary for TS7 drift.
+  typecheck-native:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run prisma:generate -w @cascade/project-schema
+
+      - name: Typecheck (native tsgo)
+        run: npm run typecheck:native
