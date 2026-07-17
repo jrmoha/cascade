@@ -19,6 +19,13 @@ One Query API endpoint, read from Postgres (never raw Cassandra):
 - `GET /funnel?projectId=&steps=&from=&to=` → per-step **actor counts** and cumulative
   **conversion rates** for the ordered `steps`, over the event-time window `[from, to]`.
 
+> **Served from the read replica (KAN-41, [ADR-0019](../adr/0019-replication-and-consistency-model.md) §2).**
+> This read routes to the Postgres streaming **read replica** (`DATABASE_REPLICA_URL`),
+> which trails the primary by a bounded lag — _on top of_ the Aggregator's existing
+> processing lag. Both are the same eventual-consistency guarantee this view already makes
+> (there is no read-your-writes here). When no replica is configured, it falls back to the
+> primary. See [`docs/runbooks/postgres-replication.md`](../runbooks/postgres-replication.md).
+
 `steps` is a comma-separated list of **2–10 distinct** event types
 (e.g. `?steps=game_start,level_complete,purchase`). `from`/`to` are ISO-8601 instants
 bounding `occurredAt`. There is **no stored funnel object** — the step sequence is

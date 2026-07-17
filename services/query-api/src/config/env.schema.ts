@@ -40,6 +40,14 @@ export const queryApiEnvSchema = z.object({
   REDIS_HOST: z.string().min(1),
   REDIS_PORT: z.coerce.number().int().positive(),
   DATABASE_URL: z.string().min(1),
+  /**
+   * Optional Postgres **read-replica** URL (KAN-41, ADR-0019 §2). The funnel and
+   * retention analytics reads are eventually-consistent by construction, so they
+   * are served from a streaming replica that trails the primary by a bounded lag.
+   * When unset (single-node dev/test), reads fall back to {@link DATABASE_URL} —
+   * so the Testcontainers suites and the smoke test run unchanged.
+   */
+  DATABASE_REPLICA_URL: z.string().min(1).optional(),
 });
 
 export type QueryApiConfig = z.infer<typeof queryApiEnvSchema>;

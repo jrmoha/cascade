@@ -78,7 +78,13 @@ export class RetentionService {
       GROUP BY cohort, day_offset
       ORDER BY cohort, day_offset`;
 
-    const { rows } = await this.postgres.query<MatrixRow>(sql, [projectId, from, to, maxOffset]);
+    // Eventually-consistent analytics read → replica (ADR-0019 §2).
+    const { rows } = await this.postgres.replicaQuery<MatrixRow>(sql, [
+      projectId,
+      from,
+      to,
+      maxOffset,
+    ]);
     return rows;
   }
 }

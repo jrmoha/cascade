@@ -18,6 +18,13 @@ One Query API endpoint, read from Postgres (never raw Cassandra):
   (actors first seen on a UTC day) within `[from, to]`, up to `maxOffset` days after each
   cohort day.
 
+> **Served from the read replica (KAN-41, [ADR-0019](../adr/0019-replication-and-consistency-model.md) §2).**
+> This read routes to the Postgres streaming **read replica** (`DATABASE_REPLICA_URL`),
+> which trails the primary by a bounded lag — _on top of_ the Aggregator's existing
+> processing lag. Both are the same eventual-consistency guarantee this view already makes
+> (there is no read-your-writes here). When no replica is configured, it falls back to the
+> primary. See [`docs/runbooks/postgres-replication.md`](../runbooks/postgres-replication.md).
+
 `from`/`to` are UTC calendar days (`YYYY-MM-DD`); `maxOffset` defaults to 7 (max 90), and
 the cohort range is capped at 92 days. Granularity is the UTC **day**.
 

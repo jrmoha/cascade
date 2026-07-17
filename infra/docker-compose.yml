@@ -223,23 +223,83 @@ services:
       retries: 5
       start_period: 5s
 
-  postgres:
+  # Postgres primary + one streaming (async) read replica (KAN-41, ADR-0019 §2).
+  # Single-primary streaming replication (physical, not logical): all writes go to
+  # the primary; the replica is a hot standby that trails by a bounded lag and
+  # serves the Query API's eventually-consistent analytics reads. Hand-rolled on
+  # the official image (init script + pg_basebackup) — same ethos as the
+  # hand-rolled Cassandra cluster / Kafka KRaft. See docs/runbooks/postgres-replication.md.
+  postgres-primary:
     image: postgres:16-alpine
-    container_name: cascade-postgres
+    container_name: cascade-postgres-primary
     ports:
       - '5432:5432'
     environment:
       POSTGRES_DB: cascade
       POSTGRES_USER: cascade
       POSTGRES_PASSWORD: cascade
+      # Password for the REPLICATION role created by the init script
+      # (infra/postgres/primary/10-init-replication.sh); the replica's
+      # pg_basebackup / walreceiver authenticate with it.
+      POSTGRES_REPLICATION_PASSWORD: replicator
+    # Explicit WAL settings for streaming replication. Several already default on
+    # PG16 — set explicitly so the replication posture is self-documenting.
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - max_wal_senders=10
+      - -c
+      - max_replication_slots=10
+      - -c
+      - hot_standby=on
+      - -c
+      - wal_keep_size=128MB
+    volumes:
+      - postgres-primary-data:/var/lib/postgresql/data
+      # initdb hook: create the replication role + open a pg_hba rule for it.
+      - ./postgres/primary:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U cascade -d cascade']
       interval: 5s
       timeout: 3s
       retries: 5
       start_period: 10s
+
+  postgres-replica:
+    image: postgres:16-alpine
+    container_name: cascade-postgres-replica
+    ports:
+      # Distinct host port so both instances are reachable from host tooling.
+      - '5433:5432'
+    environment:
+      POSTGRES_USER: cascade
+      POSTGRES_PASSWORD: cascade
+      POSTGRES_DB: cascade
+      POSTGRES_REPLICATION_PASSWORD: replicator
+      PRIMARY_HOST: postgres-primary
+      PRIMARY_PORT: '5432'
+    # Custom entrypoint: on first boot, pg_basebackup from the primary (writing
+    # standby.signal), then hand off to the stock entrypoint to run as a hot
+    # standby. Idempotent — an existing data dir just resumes streaming.
+    entrypoint: ['/usr/local/bin/replica-entrypoint.sh']
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres-replica-data:/var/lib/postgresql/data
+      - ./postgres/replica/entrypoint.sh:/usr/local/bin/replica-entrypoint.sh:ro
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+    # Ready only once it is accepting connections AND is a streaming standby
+    # (pg_is_in_recovery() = t). `$$` escapes to a literal `$` for the shell.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U cascade -d cascade && test "$$(psql -U cascade -d cascade -tAc 'SELECT pg_is_in_recovery()')" = t
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
 
   # --- Application services -------------------------------------------------
   # Gated behind the `apps` profile so `make up` / `docker compose up` brings up
@@ -339,10 +399,12 @@ services:
       PORT: '3004'
       # Bind the gRPC server on all interfaces so peers reach it by service name.
       GRPC_URL: '0.0.0.0:50051'
-      # Prisma reads DATABASE_URL directly; use the postgres service name.
-      DATABASE_URL: postgresql://cascade:cascade@postgres:5432/cascade
+      # Prisma reads DATABASE_URL directly; use the primary — Project/Schema reads
+      # are config-critical / read-your-writes and never route to the replica
+      # (ADR-0019 §2).
+      DATABASE_URL: postgresql://cascade:cascade@postgres-primary:5432/cascade
     depends_on:
-      postgres:
+      postgres-primary:
         condition: service_healthy
     healthcheck:
       test:
@@ -374,10 +436,20 @@ services:
       CASSANDRA_CONSISTENCY: local_quorum
       REDIS_HOST: redis
       REDIS_PORT: '6379'
+      # Writes/config are never read here; the Query API reads the funnel &
+      # retention summaries. DATABASE_URL is the primary (fallback / connection
+      # health); DATABASE_REPLICA_URL routes the eventually-consistent analytics
+      # reads to the replica (ADR-0019 §2). Unset ⇒ reads fall back to primary.
+      DATABASE_URL: postgresql://cascade:cascade@postgres-primary:5432/cascade
+      DATABASE_REPLICA_URL: postgresql://cascade:cascade@postgres-replica:5432/cascade
     depends_on:
       cassandra-3:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      postgres-primary:
+        condition: service_healthy
+      postgres-replica:
         condition: service_healthy
     healthcheck:
       test:
@@ -419,7 +491,8 @@ services:
       REDIS_PORT: '6379'
       AGGREGATOR_DEDUP_TTL_SECONDS: '86400'
       AGGREGATOR_LEADERBOARD_DAILY_TTL_SECONDS: '172800'
-      DATABASE_URL: postgresql://cascade:cascade@postgres:5432/cascade
+      # The Aggregator only writes its read-model tables — always the primary.
+      DATABASE_URL: postgresql://cascade:cascade@postgres-primary:5432/cascade
     depends_on:
       kafka-init:
         condition: service_completed_successfully
@@ -427,7 +500,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      postgres:
+      postgres-primary:
         condition: service_healthy
     healthcheck:
       test:
@@ -446,4 +519,5 @@ volumes:
   cassandra-1-data:
   cassandra-2-data:
   cassandra-3-data:
-  postgres-data:
+  postgres-primary-data:
+  postgres-replica-data:
