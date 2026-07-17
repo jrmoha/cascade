@@ -1,4 +1,4 @@
-.PHONY: up down down-v logs ps stack-up stack-down stack-build stack-scale
+.PHONY: up down down-v logs ps stack-up stack-down stack-build stack-scale pg-replication-demo
 
 # Infra only (backing stores) — the workflow tests/smoke rely on.
 up:
@@ -36,3 +36,9 @@ stack-scale:
 
 stack-down:
 	docker compose -f infra/docker-compose.yml --profile apps down
+
+# Postgres primary + read-replica demo (KAN-41, ADR-0019 §2): write on the
+# primary, watch it replicate to the replica (with measured lag), and show the
+# replica rejecting a write. Requires `make up`.
+pg-replication-demo:
+	bash infra/scripts/postgres-replication-demo.sh

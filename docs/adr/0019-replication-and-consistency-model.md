@@ -154,7 +154,18 @@ is later a configuration exercise, not a redesign.
   default `LOCAL_ONE` — and the keyspace is created `NetworkTopologyStrategy` with RF from
   `CASSANDRA_REPLICATION_FACTOR`. The level/RF names are the shared `cassandraConsistencySchema`
   contract in `@cascade/contracts`. See `docs/runbooks/cassandra-cluster.md`.
-- No behaviour changes in this ticket — docs only. `docs/blueprint.md` gains a Replication &
+- **The Postgres replica half (§2) is now delivered** (in **KAN-41**): `infra/docker-compose.yml`
+  runs a **primary** (`cascade-postgres-primary`, `:5432`) + one **streaming async read replica**
+  (`cascade-postgres-replica`, `:5433`), hand-rolled on the official image (a primary initdb hook
+  creates the `replicator` role + pg_hba rule; the replica bootstraps via `pg_basebackup -R` and
+  runs as a hot standby). Read routing is by freshness: **Project/Schema (Prisma) and the
+  Aggregator stay 100% on the primary**; the **Query API funnel/retention** analytics reads route
+  to the replica via a second `pg` pool (`DATABASE_REPLICA_URL`, `PostgresService.replicaQuery`) —
+  **unset ⇒ falls back to the primary**, so single-node dev/test and the smoke test are unchanged.
+  Replication (write-on-primary → visible-on-replica, lag measurement, and the read-only-standby
+  failure boundary) is proven by `infra/scripts/postgres-replication-demo.sh`; manual failover is
+  documented (not automated). See `docs/runbooks/postgres-replication.md`.
+- No behaviour changes in the original ticket — docs only. `docs/blueprint.md` gains a Replication &
   consistency pointer and `CLAUDE.md` records the policy so Phase-4 work honours it.
 
 This ADR builds on [ADR-0001](0001-overall-architecture.md) (topology), [ADR-0007](0007-cassandra-raw-events-model.md)

@@ -78,7 +78,8 @@ export class FunnelService {
       SELECT ${stepCounts.join(', ')} FROM actor_steps`;
 
     const params = [projectId, ...steps, from, to];
-    const { rows } = await this.postgres.query<Record<string, number>>(sql, params);
+    // Eventually-consistent analytics read → replica (ADR-0019 §2).
+    const { rows } = await this.postgres.replicaQuery<Record<string, number>>(sql, params);
     const row = rows[0] ?? {};
     return steps.map((_, i) => Number(row[`step_${i + 1}`] ?? 0));
   }
