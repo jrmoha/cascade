@@ -1,4 +1,4 @@
-.PHONY: up down down-v logs ps stack-up stack-down stack-build stack-scale pg-replication-demo
+.PHONY: up down down-v logs ps stack-up stack-down stack-build stack-scale pg-replication-demo load-test
 
 # Infra only (backing stores) — the workflow tests/smoke rely on.
 up:
@@ -42,3 +42,10 @@ stack-down:
 # replica rejecting a write. Requires `make up`.
 pg-replication-demo:
 	bash infra/scripts/postgres-replication-demo.sh
+
+# Ingestion resilience load test (KAN-42, ADR-0021): spins up a trimmed stack,
+# runs a k6 spike against POST /collect, and reconciles accepted events against
+# Kafka (no accepted data lost). Self-contained — brings its own stack up/down.
+# Requires k6 on PATH (https://k6.io/docs/get-started/installation/).
+load-test:
+	bash infra/scripts/load-test.sh

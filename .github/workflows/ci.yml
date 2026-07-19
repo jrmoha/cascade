@@ -60,3 +60,29 @@ jobs:
         run: npm run test:ci
         env:
           SKIP_INTEGRATION: '1'
+
+  # Ingestion resilience gate (KAN-42, ADR-0021). Unlike `verify`, this job needs
+  # Docker: it stands up the trimmed load stack, runs a k6 spike against the
+  # Collector, and reconciles the accepted (202) count against Kafka to prove no
+  # accepted data is lost under load. Heavier/slower than `verify` by design.
+  load-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Install k6
+        run: |
+          curl -fsSL https://github.com/grafana/k6/releases/download/v0.50.0/k6-v0.50.0-linux-amd64.tar.gz \
+            | sudo tar xz --strip-components=1 -C /usr/local/bin k6-v0.50.0-linux-amd64/k6
+          k6 version
+
+      - name: Ingestion resilience load test
+        run: bash infra/scripts/load-test.sh

@@ -1,26 +1,41 @@
-import { of } from 'rxjs';
-import { BadRequestException } from '@nestjs/common';
+import { Observable, of, throwError } from 'rxjs';
+import { BadRequestException, ServiceUnavailableException } from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CollectEventInput, RAW_EVENTS_TOPIC, RawEvent } from '@cascade/contracts';
 import { CollectorService } from '../src/collector/collector.service';
+import type { CollectorConfig } from '../src/config/env.schema';
 import type { ProjectSchemaClient } from '../src/ingest/project-schema.client';
 
 const PROJECT_ID = 'game-1';
+
+// Only the produce-resilience knobs are read by the service; the rest of the
+// CollectorConfig is irrelevant here, so we cast a partial through `unknown`.
+const baseConfig: Partial<CollectorConfig> = {
+  PRODUCE_MAX_INFLIGHT: 500,
+  PRODUCE_TIMEOUT_MS: 5000,
+  PRODUCE_MAX_ATTEMPTS: 3,
+  PRODUCE_RETRY_BASE_MS: 1, // keep backoff waits negligible in tests
+};
 
 describe('CollectorService', () => {
   let emit: ReturnType<typeof vi.fn>;
   let validatePayload: ReturnType<typeof vi.fn>;
   let service: CollectorService;
 
-  beforeEach(() => {
-    emit = vi.fn().mockReturnValue(of({}));
-    validatePayload = vi.fn().mockResolvedValue(undefined);
+  function makeService(overrides: Partial<CollectorConfig> = {}): CollectorService {
     // Minimal ClientKafka stub — only emit/connect are exercised.
     const client = { emit, connect: vi.fn() } as unknown as ConstructorParameters<
       typeof CollectorService
     >[0];
     const projectSchema = { validatePayload } as unknown as ProjectSchemaClient;
-    service = new CollectorService(client, projectSchema);
+    const config = { ...baseConfig, ...overrides } as unknown as CollectorConfig;
+    return new CollectorService(client, projectSchema, config);
+  }
+
+  beforeEach(() => {
+    emit = vi.fn().mockReturnValue(of({}));
+    validatePayload = vi.fn().mockResolvedValue(undefined);
+    service = makeService();
   });
 
   const baseInput = (): CollectEventInput => ({
@@ -132,5 +147,54 @@ describe('CollectorService', () => {
     expect(value.sessionId).toBe('sess-9');
     expect(value.actorId).toBe('player-42');
     expect(value.source).toBe('unity-sdk@1.4.0');
+  });
+
+  // --- Resilience: produce retry + backpressure (KAN-42, ADR-0021) ---
+
+  it('retries a transient produce failure with backoff, then succeeds', async () => {
+    emit
+      .mockReturnValueOnce(throwError(() => new Error('broker unavailable')))
+      .mockReturnValueOnce(of({}));
+    service = makeService({ PRODUCE_MAX_ATTEMPTS: 3 });
+
+    const id = await service.collect(PROJECT_ID, baseInput());
+    expect(id).toBeTruthy();
+    expect(emit).toHaveBeenCalledTimes(2); // failed once, then succeeded
+  });
+
+  it('returns 503 after exhausting produce retries (no silent drop)', async () => {
+    emit.mockReturnValue(throwError(() => new Error('broker down')));
+    service = makeService({ PRODUCE_MAX_ATTEMPTS: 3 });
+
+    await expect(service.collect(PROJECT_ID, baseInput())).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+    expect(emit).toHaveBeenCalledTimes(3);
+  });
+
+  it('sheds with 503 when the in-flight cap is reached (backpressure)', async () => {
+    // A produce that never completes holds its slot; with a cap of 1 the next
+    // request must be shed immediately rather than queue unboundedly.
+    emit.mockReturnValue(new Observable<unknown>(() => {}));
+    service = makeService({ PRODUCE_MAX_INFLIGHT: 1, PRODUCE_MAX_ATTEMPTS: 1 });
+
+    const pending = service.collect(PROJECT_ID, baseInput());
+    pending.catch(() => undefined); // never settles; avoid unhandled rejection
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledTimes(1)); // slot acquired
+
+    await expect(service.collect(PROJECT_ID, baseInput())).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+    expect(emit).toHaveBeenCalledTimes(1); // the shed request never produced
+  });
+
+  it('bounds a produce attempt by the configured timeout', async () => {
+    // emit never completes; a short timeout should reject the attempt.
+    emit.mockReturnValue(new Observable<unknown>(() => {}));
+    service = makeService({ PRODUCE_TIMEOUT_MS: 20, PRODUCE_MAX_ATTEMPTS: 1 });
+
+    await expect(service.collect(PROJECT_ID, baseInput())).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
   });
 });

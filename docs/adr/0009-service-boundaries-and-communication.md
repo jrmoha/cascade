@@ -107,6 +107,12 @@ header and validates each payload against the project's registered schema, **Red
 It qualifies as the one justified sync dependency because the Collector cannot decide accept/reject
 without an authoritative answer. Beyond it, all cross-service communication remains async via Kafka.
 
+As of **KAN-42** ([ADR-0021](0021-ingestion-resilience.md)) this call is wrapped in a **circuit
+breaker** (`opossum`) on the caller side: when Project/Schema is failing, the breaker opens and cold
+requests fail fast into the existing fail-closed/cached policy instead of hanging on the per-call
+timeout. This changes the call's _failure handling_, not the inventory — it is still the one sync
+call, still gRPC, still justified.
+
 ### 5. Topic naming convention
 
 Locked now so it does not drift across services:

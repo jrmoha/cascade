@@ -6,6 +6,8 @@ import type { CollectorConfig } from '../config/env.schema';
 import { ApiKeyGuard } from './api-key.guard';
 import { PROJECT_SCHEMA_CLIENT } from './ingest.tokens';
 import { ProjectSchemaClient } from './project-schema.client';
+import { RateLimiter } from './rate-limit';
+import { RateLimitGuard } from './rate-limit.guard';
 
 /**
  * The ingest auth + validation slice (KAN-30): a gRPC client to Project/Schema
@@ -31,7 +33,11 @@ import { ProjectSchemaClient } from './project-schema.client';
       },
     ]),
   ],
-  providers: [ProjectSchemaClient, ApiKeyGuard],
-  exports: [ProjectSchemaClient, ApiKeyGuard],
+  providers: [ProjectSchemaClient, ApiKeyGuard, RateLimiter, RateLimitGuard],
+  // Export the guards AND their injected deps: a controller-scoped guard is
+  // instantiated in the consuming module's context (CollectorModule), so its
+  // dependencies must be visible there too (mirrors ProjectSchemaClient for
+  // ApiKeyGuard).
+  exports: [ProjectSchemaClient, ApiKeyGuard, RateLimiter, RateLimitGuard],
 })
 export class IngestModule {}

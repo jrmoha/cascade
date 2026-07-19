@@ -132,6 +132,11 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('POST /collect (ingest int
     process.env.REDIS_PORT = String(redis.getMappedPort(6379));
     process.env.PROJECT_SCHEMA_GRPC_URL = STUB_ADDR;
     process.env.PROJECT_SCHEMA_CACHE_TTL_SECONDS = '60';
+    // Small per-key rate limit so the burst test trips 429 with a modest number
+    // of requests. Ample headroom for the other tests' handful of VALID_KEY
+    // calls (burst 20, refill 1/s, spread across sequential `it`s).
+    process.env.RATE_LIMIT_BURST = '20';
+    process.env.RATE_LIMIT_REFILL_PER_SEC = '1';
 
     const { AppModule } = await import('../src/app.module');
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -206,6 +211,33 @@ describe.skipIf(process.env.SKIP_INTEGRATION === '1')('POST /collect (ingest int
   it('rejects an unregistered event type with 422', async () => {
     const res = await valid().send({ type: 'never_registered', payload: {} }).expect(422);
     expect(res.body.message).toBe('Event validation failed');
+  });
+
+  it('rate-limits a burst on a single key with 429 (KAN-42)', async () => {
+    // The limiter runs *before* auth and buckets per key, so a flood on one key
+    // is capped regardless of validity. Drain the bucket (burst 20, refill 1/s)
+    // with a tight sequential loop — sequential avoids the in-process socket
+    // storm a big concurrent flood would cause; the slow refill means requests
+    // past ~20 must come back 429.
+    const burstKey = 'cas_burst.flood';
+    const statuses: number[] = [];
+    for (let i = 0; i < 30; i++) {
+      const status = await request(server())
+        .post('/collect')
+        .set('x-api-key', burstKey)
+        .send({ type: 'level_complete', payload: { level: 1 } })
+        .then((r) => r.status);
+      statuses.push(status);
+    }
+    expect(statuses).toContain(429);
+
+    // A different, untouched key has a full bucket, so it is not rate-limited —
+    // it falls through to auth and gets a 401 (proving 429 is per-key, not global).
+    await request(server())
+      .post('/collect')
+      .set('x-api-key', 'cas_fresh.untouched')
+      .send({ type: 'level_complete', payload: { level: 1 } })
+      .expect(401);
   });
 
   it('serves a warm key+schema from cache (no gRPC) but fails closed (503) on a cold miss when Project/Schema is down', async () => {

@@ -1,0 +1,155 @@
+# KAN-42 / ADR-0021 — trimmed stack for the ingestion resilience load test.
+#
+# Deliberately NOT the full 3-node clusters: the spike targets the Collector's
+# write edge, so we only need Collector + Kafka + Redis + Project/Schema (and its
+# Postgres). No Cassandra, Ingestion-Processor, Query API, Aggregator or replica —
+# the k6 spike produces to `raw-events`, and reconcile.mjs reads the topic's end
+# offsets directly. Single-node infra (RF=1) keeps CI tractable.
+#
+# Driven by infra/scripts/load-test.sh (make load-test / the CI load-test job).
+services:
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: cascade-load-kafka
+    # Host port 9192 (not 9092) so the load stack coexists with a running
+    # `make up` infra cluster (which owns 9092). Containers still talk over the
+    # internal listener kafka:29092; only the host-facing reconcile.mjs uses 9192.
+    ports:
+      - '9192:9192'
+    environment:
+      KAFKA_NODE_ID: '1'
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:9192
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9192
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: '1'
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: '1'
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: '1'
+      KAFKA_DEFAULT_REPLICATION_FACTOR: '1'
+      KAFKA_MIN_INSYNC_REPLICAS: '1'
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: '0'
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          '/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:29092',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+
+  # One-shot: provision raw-events (RF=1) then exit 0. app services gate on it.
+  kafka-init:
+    image: apache/kafka:3.7.0
+    container_name: cascade-load-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ['/bin/bash', '-c']
+    command:
+      - |
+        set -euo pipefail
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists \
+          --topic raw-events --partitions 6 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists \
+          --topic raw-events.dlq --partitions 1 --replication-factor 1
+        echo "== load topics provisioned =="
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: cascade-load-redis
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: cascade-load-postgres
+    environment:
+      POSTGRES_DB: cascade
+      POSTGRES_USER: cascade
+      POSTGRES_PASSWORD: cascade
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U cascade -d cascade']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  project-schema:
+    build:
+      context: ../..
+      dockerfile: services/project-schema/Dockerfile
+    container_name: cascade-load-project-schema
+    ports:
+      - '3004:3004'
+    environment:
+      NODE_ENV: production
+      PORT: '3004'
+      GRPC_URL: '0.0.0.0:50051'
+      DATABASE_URL: postgresql://cascade:cascade@postgres:5432/cascade
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('http').get('http://localhost:3004/health',(r)=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  collector:
+    build:
+      context: ../..
+      dockerfile: services/collector/Dockerfile
+    container_name: cascade-load-collector
+    ports:
+      - '3001:3001'
+    environment:
+      NODE_ENV: production
+      PORT: '3001'
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      REDIS_HOST: redis
+      REDIS_PORT: '6379'
+      PROJECT_SCHEMA_GRPC_URL: project-schema:50051
+      PROJECT_SCHEMA_CACHE_TTL_SECONDS: '30'
+      # Generous limits so the spike exercises real throughput rather than the
+      # limiter; the shedding paths themselves are covered by unit/integration
+      # tests. Tune these down to watch 429/503 shedding under the same spike.
+      RATE_LIMIT_REFILL_PER_SEC: '5000'
+      RATE_LIMIT_BURST: '10000'
+      PRODUCE_MAX_INFLIGHT: '1000'
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      project-schema:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('http').get('http://localhost:3001/health',(r)=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s

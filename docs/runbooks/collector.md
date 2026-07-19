@@ -10,6 +10,37 @@ Thin write-path service. Accepts events on `POST /collect` and produces them to 
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Comma-separated. Use `localhost:9092` from the host, `kafka:29092` from inside Docker. |
 | `PORT`                    | `3001`           | HTTP listen port.                                                                      |
 
+Resilience knobs (KAN-42, ADR-0021 — all optional, defaulted; full list in `.env.example`):
+
+| Env var                                                      | Default        | Controls                                          |
+| ------------------------------------------------------------ | -------------- | ------------------------------------------------- |
+| `RATE_LIMIT_REFILL_PER_SEC` / `RATE_LIMIT_BURST`             | 50 / 100       | Per-API-key token bucket (sustained rate / burst) |
+| `PRODUCE_MAX_INFLIGHT`                                       | 500            | Backpressure cap on concurrent produces           |
+| `PRODUCE_TIMEOUT_MS`                                         | 5000           | Per-produce-attempt deadline                      |
+| `PRODUCE_MAX_ATTEMPTS` / `PRODUCE_RETRY_BASE_MS`             | 3 / 100        | Produce retry count / backoff base                |
+| `PROJECT_SCHEMA_BREAKER_ERROR_PCT` / `_RESET_MS` / `_VOLUME` | 50 / 10000 / 5 | Project/Schema circuit breaker                    |
+
+## Resilience (KAN-42, ADR-0021)
+
+The ingest edge sheds load and tolerates a slow dependency rather than falling over. Status codes:
+
+| Code              | Meaning                                                                                                                |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `202`             | Accepted — handed to Kafka.                                                                                            |
+| `429`             | Per-API-key rate limit exceeded (token bucket). Honour the `Retry-After` header.                                       |
+| `503`             | Backpressure (in-flight cap reached) **or** produce retries exhausted. The event was **not** accepted — safe to retry. |
+| `401`/`400`/`422` | Auth / envelope / schema validation (unchanged, KAN-30).                                                               |
+
+- **Rate limiting** is per key (SHA-256 bucket in Redis), applied **before** auth, and **fails open**
+  if Redis is unreachable — it is a spike shield, not a security gate.
+- **Backpressure + retry** never silently drop data: a `503` means the event was never acknowledged,
+  so the client still owns it. There is no Collector-side DLQ (a dead Kafka can't take one).
+- **Circuit breaker** wraps the Project/Schema gRPC calls (`opossum`). When open, cold requests
+  fail-closed **fast** (no 5 s hang) and warm-cache hits are still served; `NOT_FOUND` (unregistered
+  schema → `422`) never trips it. Watch the logs for `Circuit OPEN/HALF-OPEN/CLOSED` transitions.
+
+Load-testing these paths under a spike: see [load-testing.md](load-testing.md) (`make load-test`).
+
 ## Run locally
 
 ```bash

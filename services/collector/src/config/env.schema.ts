@@ -36,6 +36,32 @@ export const collectorEnvSchema = z.object({
   // TTL (seconds) for cached key/schema lookups. Short so revocations and
   // schema edits propagate quickly without a per-event lookup. See ADR-0013.
   PROJECT_SCHEMA_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(30),
+
+  // --- Ingestion resilience (KAN-42, ADR-0021) ---
+  // These are tuning knobs, not peer addresses, so they carry conventional
+  // defaults (unlike infra addresses, which must be supplied).
+
+  // Per-API-key Redis token bucket: sustained refill rate (tokens/sec) and the
+  // burst capacity (bucket size). A key over its budget gets a 429.
+  RATE_LIMIT_REFILL_PER_SEC: z.coerce.number().positive().default(50),
+  RATE_LIMIT_BURST: z.coerce.number().int().positive().default(100),
+
+  // Backpressure: the hard cap on Kafka produces in flight at once. Beyond it
+  // the Collector returns 503 rather than buffering unboundedly (never drops).
+  PRODUCE_MAX_INFLIGHT: z.coerce.number().int().positive().default(500),
+  // Bound on a single produce attempt; a stuck broker fails fast into retry/503.
+  PRODUCE_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
+  // Bounded exponential backoff on a transient produce failure: waits are
+  // PRODUCE_RETRY_BASE_MS * 2^(n-1); exhaustion returns 503 (client retries).
+  PRODUCE_MAX_ATTEMPTS: z.coerce.number().int().positive().default(3),
+  PRODUCE_RETRY_BASE_MS: z.coerce.number().int().positive().default(100),
+
+  // Circuit breaker around the Project/Schema gRPC calls (opossum). Trip when
+  // the error rate exceeds ERROR_PCT over at least VOLUME calls; stay open for
+  // RESET_MS before a trial call. NOT_FOUND (unregistered schema) never trips it.
+  PROJECT_SCHEMA_BREAKER_ERROR_PCT: z.coerce.number().int().min(1).max(100).default(50),
+  PROJECT_SCHEMA_BREAKER_RESET_MS: z.coerce.number().int().positive().default(10000),
+  PROJECT_SCHEMA_BREAKER_VOLUME: z.coerce.number().int().positive().default(5),
 });
 
 export type CollectorConfig = z.infer<typeof collectorEnvSchema>;
