@@ -20,6 +20,10 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/libs/contracts/package.json ./libs/contracts/package.json
 COPY --from=builder /app/libs/contracts/dist ./libs/contracts/dist
+# The Collector is a gRPC *client* of Project/Schema and loads project_schema.proto
+# at boot via @nestjs/microservices (PROJECT_SCHEMA_PROTO_PATH resolves dist/../proto),
+# so the .proto must ship in the runtime image too.
+COPY --from=builder /app/libs/contracts/proto ./libs/contracts/proto
 COPY --from=builder /app/services/collector/package.json ./services/collector/package.json
 COPY --from=builder /app/services/collector/dist ./services/collector/dist
 USER node

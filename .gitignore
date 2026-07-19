@@ -35,3 +35,6 @@ coverage/
 
 # Local-only Claude Code skills
 .claude/skills/
+
+# k6 load-test output artifact (KAN-42)
+infra/load/summary.json

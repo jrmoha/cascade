@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { Inject, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnApplicationBootstrap,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ClientKafka } from '@nestjs/microservices';
 import {
   CollectEventInput,
@@ -8,18 +14,31 @@ import {
   RawEvent,
   rawEventSchema,
 } from '@cascade/contracts';
-import { lastValueFrom } from 'rxjs';
+import { lastValueFrom, timeout } from 'rxjs';
 import { KAFKA_PRODUCER } from './kafka.tokens';
+import { InFlightLimiter } from './in-flight-limiter';
 import { ProjectSchemaClient } from '../ingest/project-schema.client';
+import { APP_CONFIG } from '../config/config.module';
+import type { CollectorConfig } from '../config/env.schema';
 
 @Injectable()
 export class CollectorService implements OnApplicationBootstrap {
   private readonly logger = new Logger(CollectorService.name);
+  private readonly inFlight: InFlightLimiter;
+  private readonly produceTimeoutMs: number;
+  private readonly maxAttempts: number;
+  private readonly retryBaseMs: number;
 
   constructor(
     @Inject(KAFKA_PRODUCER) private readonly client: ClientKafka,
     private readonly projectSchema: ProjectSchemaClient,
-  ) {}
+    @Inject(APP_CONFIG) config: CollectorConfig,
+  ) {
+    this.inFlight = new InFlightLimiter(config.PRODUCE_MAX_INFLIGHT);
+    this.produceTimeoutMs = config.PRODUCE_TIMEOUT_MS;
+    this.maxAttempts = config.PRODUCE_MAX_ATTEMPTS;
+    this.retryBaseMs = config.PRODUCE_RETRY_BASE_MS;
+  }
 
   async onApplicationBootstrap(): Promise<void> {
     await this.client.connect();
@@ -46,6 +65,10 @@ export class CollectorService implements OnApplicationBootstrap {
    * is validated against the shared `rawEventSchema` before it leaves the
    * Collector, so nothing invalid reaches Kafka.
    *
+   * The produce itself is guarded for resilience (KAN-42, ADR-0021): bounded
+   * in-flight backpressure, a per-attempt timeout, and bounded-backoff retry —
+   * see {@link produce}.
+   *
    * @returns the eventId stamped on the published event.
    */
   async collect(projectId: string, input: CollectEventInput): Promise<string> {
@@ -67,14 +90,64 @@ export class CollectorService implements OnApplicationBootstrap {
       source: input.source,
     });
 
-    await lastValueFrom(
-      this.client.emit(RAW_EVENTS_TOPIC, {
-        key: event.sessionId ?? event.actorId ?? event.eventId,
-        value: JSON.stringify(event),
-      }),
-    );
+    await this.produce(event);
 
     this.logger.debug(`Produced event ${event.eventId} for project ${event.projectId}`);
     return event.eventId;
   }
+
+  /**
+   * Publish one event with backpressure + bounded retry (KAN-42, ADR-0021).
+   *
+   * Backpressure first: reserve one of `PRODUCE_MAX_INFLIGHT` slots, or shed the
+   * request with `503` immediately rather than buffering unboundedly. Then retry
+   * a transient produce up to `PRODUCE_MAX_ATTEMPTS` times with exponential
+   * backoff, each attempt bounded by `PRODUCE_TIMEOUT_MS` so a stuck broker can't
+   * hang the request. If every attempt fails we return `503` — the event was
+   * never acknowledged to the client, so a retry is safe and nothing is dropped.
+   */
+  private async produce(event: RawEvent): Promise<void> {
+    if (!this.inFlight.tryAcquire()) {
+      this.logger.warn(`Backpressure: shedding event ${event.eventId} (in-flight cap reached)`);
+      throw new ServiceUnavailableException('Ingest is at capacity; retry shortly');
+    }
+
+    try {
+      let lastError: unknown;
+      for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
+        try {
+          await lastValueFrom(
+            this.client
+              .emit(RAW_EVENTS_TOPIC, {
+                key: event.sessionId ?? event.actorId ?? event.eventId,
+                value: JSON.stringify(event),
+              })
+              .pipe(timeout(this.produceTimeoutMs)),
+          );
+          return;
+        } catch (err) {
+          lastError = err;
+          this.logger.warn(
+            `Produce attempt ${attempt}/${this.maxAttempts} for event ${event.eventId} failed: ${(err as Error).message}`,
+          );
+          if (attempt < this.maxAttempts) {
+            await sleep(this.retryBaseMs * 2 ** (attempt - 1));
+          }
+        }
+      }
+
+      this.logger.error(
+        `Produce exhausted ${this.maxAttempts} attempts for event ${event.eventId}: ${(lastError as Error)?.message ?? String(lastError)}`,
+      );
+      throw new ServiceUnavailableException(
+        'Unable to enqueue event after retries; retry the request',
+      );
+    } finally {
+      this.inFlight.release();
+    }
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
